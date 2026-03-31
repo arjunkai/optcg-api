@@ -34,7 +34,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "HEAD"],
     allow_headers=["*"],
 )
 
@@ -86,7 +86,7 @@ def root():
     }
 
 
-@app.get("/sets")
+@app.api_route("/sets", methods=["GET", "HEAD"])
 def get_sets():
     """All sets, newest first."""
     rows = fetch("SELECT * FROM sets ORDER BY pack_id DESC")
@@ -129,7 +129,7 @@ def get_card(card_id: str):
     return {**card, "sets": sets}
 
 
-@app.get("/cards")
+@app.api_route("/cards", methods=["GET", "HEAD"])
 def get_cards(
     # --- filters ---
     set_id:    Optional[str]  = Query(None, description="Filter by set e.g. OP-01"),
