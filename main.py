@@ -215,3 +215,15 @@ def get_cards(
         "pageSize":   page_size,
         "data":       cards,
     }
+
+
+@app.get("/images/{card_id}")
+async def proxy_image(card_id: str):
+    import httpx
+    from fastapi.responses import Response
+    url = f"https://en.onepiece-cardgame.com/images/cardlist/card/{card_id}.png"
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url, headers={"Referer": "https://en.onepiece-cardgame.com/"}, follow_redirects=True)
+    if r.status_code != 200:
+        return Response(status_code=404)
+    return Response(content=r.content, media_type="image/png", headers={"Cache-Control": "public, max-age=86400", "Access-Control-Allow-Origin": "*"})
