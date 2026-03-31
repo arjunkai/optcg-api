@@ -144,7 +144,7 @@ def get_cards(
     max_cost:  Optional[int]  = Query(None, description="Max cost"),
     # --- pagination (matches Pokemon TCG API convention) ---
     page:      int = Query(1,  ge=1,          description="Page number"),
-    page_size: int = Query(50, ge=1, le=200,  description="Results per page (max 200)"),
+    page_size: int = Query(50, ge=1, le=500,  description="Results per page (max 500)"),
 ):
     """
     Cards with optional filters. All filters are combinable.
