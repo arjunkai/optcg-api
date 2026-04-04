@@ -19,17 +19,55 @@ from typing import Optional
 from contextlib import contextmanager
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.openapi.docs import get_swagger_ui_html
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
 
 load_dotenv()
 
+tags_metadata = [
+    {
+        "name": "Info",
+        "description": "API status and metadata.",
+    },
+    {
+        "name": "Sets",
+        "description": "Browse booster packs and starter decks. Each set has a unique ID like `OP-01` or `ST-01`.",
+    },
+    {
+        "name": "Cards",
+        "description": "Search, filter, and retrieve individual cards. Supports pagination and all major filter combinations.",
+    },
+    {
+        "name": "Images",
+        "description": "Proxy card artwork from the official One Piece Card Game site. Returns PNG with CORS headers.",
+    },
+]
+
 app = FastAPI(
     title="OPTCG API",
-    description="One Piece TCG card data — cards, sets, filters, binder support.",
+    description=(
+        "**Free REST API for One Piece TCG card data.**\n\n"
+        "Cards, sets, filters, and image proxying — built for "
+        "[OPBindr](https://opbindr.com) and the OPTCG community.\n\n"
+        "- Pagination follows the [Pokemon TCG API](https://pokemontcg.io/) convention (`page` / `pageSize`)\n"
+        "- All card IDs are uppercase (e.g. `OP01-001`, `ST01-001`)\n"
+        "- Image proxy adds CORS headers so you can use card art directly in the browser"
+    ),
     version="1.0.0",
+    openapi_tags=tags_metadata,
+    docs_url=None,  # we serve custom /docs below
+    swagger_ui_parameters={
+        "docExpansion": "list",          # show endpoint summaries, collapse bodies
+        "defaultModelsExpandDepth": -1,  # hide the Schemas section at the bottom
+        "filter": True,                  # add a search/filter bar at the top
+        "tryItOutEnabled": True,         # enable "Try it out" by default
+    },
 )
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,6 +75,16 @@ app.add_middleware(
     allow_methods=["GET", "HEAD"],
     allow_headers=["*"],
 )
+
+
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui():
+    return get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title=f"{app.title} — Docs",
+        swagger_css_url="/static/swagger-custom.css",
+        swagger_ui_parameters=app.swagger_ui_parameters,
+    )
 
 # ── Database ──────────────────────────────────────────────────────────────────
 # Connection-per-request is correct for Render free tier + Supabase session
@@ -71,7 +119,33 @@ def fetch_one(sql: str, params=None):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
-@app.get("/")
+@app.get(
+    "/",
+    tags=["Info"],
+    summary="API Info",
+    description="Returns API name, version, docs URL, and a list of available endpoints.",
+    responses={
+        200: {
+            "description": "API metadata",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "name": "OPTCG API",
+                        "version": "1.0.0",
+                        "docs": "/docs",
+                        "endpoints": [
+                            "GET /sets",
+                            "GET /sets/{id}/cards",
+                            "GET /cards",
+                            "GET /cards/{id}",
+                            "GET /images/{card_id}",
+                        ],
+                    }
+                }
+            },
+        }
+    },
+)
 def root():
     return {
         "name":    "OPTCG API",
@@ -82,20 +156,49 @@ def root():
             "GET /sets/{id}/cards",
             "GET /cards",
             "GET /cards/{id}",
+            "GET /images/{card_id}",
         ],
     }
 
 
-@app.api_route("/sets", methods=["GET", "HEAD"])
+@app.api_route(
+    "/sets",
+    methods=["GET", "HEAD"],
+    tags=["Sets"],
+    summary="List All Sets",
+    description="Returns every set (booster packs, starter decks, promo packs) ordered newest first.",
+    responses={
+        200: {
+            "description": "All sets",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "count": 2,
+                        "data": [
+                            {"id": "OP01", "pack_id": "550101", "label": "Romance Dawn [OP-01]", "card_count": 121},
+                            {"id": "ST01", "pack_id": "550001", "label": "Straw Hat Crew [ST-01]", "card_count": 17},
+                        ],
+                    }
+                }
+            },
+        }
+    },
+)
 def get_sets():
-    """All sets, newest first."""
     rows = fetch("SELECT * FROM sets ORDER BY pack_id DESC")
     return {"count": len(rows), "data": rows}
 
 
-@app.get("/sets/{set_id}/cards")
+@app.get(
+    "/sets/{set_id}/cards",
+    tags=["Sets"],
+    summary="Get Cards in a Set",
+    description=(
+        "Returns all cards belonging to a specific set, ordered by card ID.\n\n"
+        "**Example:** `/sets/OP01/cards` returns all cards from the *Romance Dawn* booster."
+    ),
+)
 def get_set_cards(set_id: str):
-    """All cards in a set, in card-ID order."""
     s = fetch_one("SELECT * FROM sets WHERE id = %s", [set_id.upper()])
     if not s:
         raise HTTPException(404, f"Set '{set_id}' not found")
@@ -111,9 +214,53 @@ def get_set_cards(set_id: str):
     return {"set": s, "count": len(cards), "data": cards}
 
 
-@app.get("/cards/{card_id}")
+@app.get(
+    "/cards/{card_id}",
+    tags=["Cards"],
+    summary="Get a Single Card",
+    description=(
+        "Returns full card data plus every set the card appears in.\n\n"
+        "**Example:** `/cards/OP01-001` returns Roronoa Zoro with its set memberships."
+    ),
+    responses={
+        200: {
+            "description": "Full card object with sets",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": "OP01-001",
+                        "base_id": "OP01-001",
+                        "name": "Roronoa Zoro",
+                        "category": "Character",
+                        "colors": ["Green"],
+                        "rarity": "Common",
+                        "cost": 3,
+                        "power": 5000,
+                        "counter": 0,
+                        "attributes": ["Slash"],
+                        "types": ["Supernovas", "Straw Hat Crew"],
+                        "effect": None,
+                        "trigger": None,
+                        "image_url": "https://en.onepiece-cardgame.com/images/cardlist/card/OP01-001.png",
+                        "parallel": False,
+                        "sets": [
+                            {"id": "OP01", "pack_id": "550101", "label": "Romance Dawn [OP-01]", "card_count": 121}
+                        ],
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Card not found",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Card 'XX99-999' not found"}
+                }
+            },
+        },
+    },
+)
 def get_card(card_id: str):
-    """Single card by ID. Includes every set it appears in."""
     card = fetch_one("SELECT * FROM cards WHERE id = %s", [card_id.upper()])
     if not card:
         raise HTTPException(404, f"Card '{card_id}' not found")
@@ -129,7 +276,25 @@ def get_card(card_id: str):
     return {**card, "sets": sets}
 
 
-@app.api_route("/cards", methods=["GET", "HEAD"])
+@app.api_route(
+    "/cards",
+    methods=["GET", "HEAD"],
+    tags=["Cards"],
+    summary="Search Cards",
+    description=(
+        "Search and filter the full card database with pagination.\n\n"
+        "**Filters** — all optional and combinable:\n"
+        "- `set_id` — restrict to a single set (e.g. `OP01`)\n"
+        "- `color` — card color (`Red`, `Blue`, `Green`, `Purple`, `Black`, `Yellow`)\n"
+        "- `category` — card type (`Leader`, `Character`, `Event`, `Stage`, `Don`)\n"
+        "- `rarity` — `Leader`, `Common`, `Uncommon`, `Rare`, `SuperRare`, `SecretRare`\n"
+        "- `name` — partial text search (case insensitive)\n"
+        "- `parallel` — `true` for alt-art only, `false` for base only\n"
+        "- `min_power` / `max_power` — power range\n"
+        "- `min_cost` / `max_cost` — cost range\n\n"
+        "**Pagination** follows the Pokemon TCG API convention: `page` (default 1) and `page_size` (default 50, max 500)."
+    ),
+)
 def get_cards(
     # --- filters ---
     set_id:    Optional[str]  = Query(None, description="Filter by set e.g. OP-01"),
@@ -146,10 +311,6 @@ def get_cards(
     page:      int = Query(1,  ge=1,          description="Page number"),
     page_size: int = Query(50, ge=1, le=500,  description="Results per page (max 500)"),
 ):
-    """
-    Cards with optional filters. All filters are combinable.
-    Pagination uses page/pageSize (same convention as Pokemon TCG API).
-    """
     conditions, params = [], []
 
     if set_id:
@@ -217,7 +378,17 @@ def get_cards(
     }
 
 
-@app.get("/images/{card_id}")
+@app.get(
+    "/images/{card_id}",
+    tags=["Images"],
+    summary="Proxy Card Image",
+    description=(
+        "Fetches the card image from the official One Piece Card Game site and serves it "
+        "with CORS headers and a 24-hour cache.\n\n"
+        "**Example:** `/images/OP01-001` returns the PNG artwork for that card.\n\n"
+        "Returns `404` if the card image does not exist upstream."
+    ),
+)
 async def proxy_image(card_id: str):
     import httpx
     from fastapi.responses import Response
