@@ -13,13 +13,20 @@ A REST API for the One Piece Trading Card Game. Provides card and set data for a
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/cards` | All cards with filters |
+| HEAD | `/cards` | Same as GET but headers only (for uptime checks) |
 | GET | `/cards/{id}` | Single card by ID |
 
 ### Sets
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/sets` | All sets |
+| HEAD | `/sets` | Same as GET but headers only (for uptime checks) |
 | GET | `/sets/{id}/cards` | All cards in a set |
+
+### Images
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/images/{card_id}` | Proxy card image with CORS headers |
 
 ---
 
@@ -38,7 +45,7 @@ A REST API for the One Piece Trading Card Game. Provides card and set data for a
 | `min_cost` | int | `1` | Minimum cost |
 | `max_cost` | int | `5` | Maximum cost |
 | `page` | int | `1` | Page number |
-| `page_size` | int | `50` | Results per page (max 200) |
+| `page_size` | int | `50` | Results per page (max 500) |
 
 ---
 
