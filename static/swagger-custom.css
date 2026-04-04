@@ -1,0 +1,99 @@
+/* OPTCG API — Swagger UI theme overrides */
+
+/* Top bar — dark navy with red accent */
+.swagger-ui .topbar {
+    background-color: #1a1a2e;
+    padding: 10px 0;
+}
+.swagger-ui .topbar .download-url-wrapper .select-label span {
+    color: #e94560;
+}
+
+/* Info section header */
+.swagger-ui .info .title {
+    color: #1a1a2e;
+}
+.swagger-ui .info a {
+    color: #e94560;
+}
+
+/* Tag group headers */
+.swagger-ui .opblock-tag {
+    border-bottom: 1px solid #e94560;
+    color: #1a1a2e;
+    font-size: 1.2em;
+}
+.swagger-ui .opblock-tag:hover {
+    background: rgba(233, 69, 96, 0.05);
+}
+
+/* GET method blocks */
+.swagger-ui .opblock.opblock-get {
+    border-color: #e94560;
+    background: rgba(233, 69, 96, 0.03);
+}
+.swagger-ui .opblock.opblock-get .opblock-summary-method {
+    background: #e94560;
+}
+
+/* HEAD method blocks */
+.swagger-ui .opblock.opblock-head {
+    border-color: #0f3460;
+    background: rgba(15, 52, 96, 0.03);
+}
+.swagger-ui .opblock.opblock-head .opblock-summary-method {
+    background: #0f3460;
+}
+
+/* Execute button */
+.swagger-ui .btn.execute {
+    background-color: #e94560;
+    border-color: #e94560;
+    color: #fff;
+}
+.swagger-ui .btn.execute:hover {
+    background-color: #c73652;
+}
+
+/* Authorize button */
+.swagger-ui .btn.authorize {
+    border-color: #e94560;
+    color: #e94560;
+}
+
+/* Try it out button */
+.swagger-ui .try-out__btn {
+    border-color: #e94560;
+    color: #e94560;
+}
+.swagger-ui .try-out__btn:hover {
+    background-color: rgba(233, 69, 96, 0.1);
+}
+
+/* Filter bar */
+.swagger-ui .filter .operation-filter-input {
+    border: 2px solid #0f3460;
+    border-radius: 4px;
+    padding: 6px 10px;
+}
+.swagger-ui .filter .operation-filter-input:focus {
+    border-color: #e94560;
+    outline: none;
+}
+
+/* Models section (hidden via config, but just in case) */
+.swagger-ui section.models {
+    display: none;
+}
+
+/* Response code colors */
+.swagger-ui .responses-inner .response .response-col_status {
+    color: #1a1a2e;
+}
+
+/* Make the description markdown nicer */
+.swagger-ui .info .renderedMarkdown p {
+    font-size: 14px;
+    line-height: 1.6;
+    color: #333;
+}
