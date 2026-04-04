@@ -19,8 +19,7 @@ from typing import Optional
 from contextlib import contextmanager
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
@@ -59,15 +58,7 @@ app = FastAPI(
     version="1.0.0",
     openapi_tags=tags_metadata,
     docs_url=None,  # we serve custom /docs below
-    swagger_ui_parameters={
-        "docExpansion": "list",          # show endpoint summaries, collapse bodies
-        "defaultModelsExpandDepth": -1,  # hide the Schemas section at the bottom
-        "filter": True,                  # add a search/filter bar at the top
-        "tryItOutEnabled": True,         # enable "Try it out" by default
-    },
 )
-
-app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -78,13 +69,21 @@ app.add_middleware(
 
 
 @app.get("/docs", include_in_schema=False)
-async def custom_swagger_ui():
-    return get_swagger_ui_html(
-        openapi_url=app.openapi_url,
-        title=f"{app.title} — Docs",
-        swagger_css_url="/static/swagger-custom.css",
-        swagger_ui_parameters=app.swagger_ui_parameters,
-    )
+async def scalar_docs():
+    return HTMLResponse("""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OPTCG API — Docs</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+    <script id="api-reference" data-url="/openapi.json"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+</body>
+</html>
+    """)
 
 # ── Database ──────────────────────────────────────────────────────────────────
 # Connection-per-request is correct for Render free tier + Supabase session
