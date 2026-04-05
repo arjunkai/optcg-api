@@ -40,6 +40,7 @@ A REST API for the One Piece Trading Card Game. Provides card and set data for a
 | `rarity` | string | `SuperRare` | Common, Uncommon, Rare, SuperRare, SecretRare, Leader |
 | `name` | string | `Luffy` | Partial name search |
 | `parallel` | boolean | `true` | true = parallel only, false = base only |
+| `variant_type` | string | `manga` | alt_art, reprint, manga, serial |
 | `min_power` | int | `5000` | Minimum power |
 | `max_power` | int | `9000` | Maximum power |
 | `min_cost` | int | `1` | Minimum cost |
@@ -55,6 +56,7 @@ A REST API for the One Piece Trading Card Game. Provides card and set data for a
 GET /cards?color=Red&category=Leader
 GET /cards?name=Luffy&min_power=5000
 GET /cards?set_id=OP-01&rarity=SecretRare
+GET /cards?variant_type=manga
 GET /cards/OP01-001
 GET /sets/OP-01/cards
 ```
@@ -76,6 +78,7 @@ GET /sets/OP-01/cards
   "effect": "[DON!! x1] [Your Turn] All of your Characters gain +1000 power.",
   "trigger": null,
   "parallel": false,
+  "variant_type": null,
   "image_url": "https://en.onepiece-cardgame.com/images/cardlist/card/OP01-001.png",
   "sets": [{ "id": "OP-01", "label": "BOOSTER PACK -ROMANCE DAWN- [OP-01]" }]
 }
@@ -90,6 +93,7 @@ GET /sets/OP-01/cards
 - Starter decks ST-01 through ST-29
 - Extra Boosters, Premium Boosters, Promos
 - Parallel/alt-art cards tracked with `base_id` reference
+- Variant types auto-classified: `alt_art`, `reprint`, `manga`, `serial`
 - Cards appearing in multiple sets fully supported via junction table
 
 ---
