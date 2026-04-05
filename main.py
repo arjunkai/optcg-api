@@ -289,6 +289,7 @@ def get_card(card_id: str):
         "- `rarity` — `Leader`, `Common`, `Uncommon`, `Rare`, `SuperRare`, `SecretRare`\n"
         "- `name` — partial text search (case insensitive)\n"
         "- `parallel` — `true` for alt-art only, `false` for base only\n"
+        "- `variant_type` — parallel style: `alt_art`, `reprint`, `manga`, `serial`\n"
         "- `min_power` / `max_power` — power range\n"
         "- `min_cost` / `max_cost` — cost range\n\n"
         "**Pagination** follows the Pokemon TCG API convention: `page` (default 1) and `page_size` (default 50, max 500)."
@@ -302,6 +303,7 @@ def get_cards(
     rarity:    Optional[str]  = Query(None, description="Leader, Common, Uncommon, Rare, SuperRare, SecretRare"),
     name:      Optional[str]  = Query(None, description="Partial name search"),
     parallel:  Optional[bool] = Query(None, description="true=parallel only, false=base only"),
+    variant_type: Optional[str] = Query(None, description="alt_art, reprint, manga, serial"),
     min_power: Optional[int]  = Query(None, description="Min power"),
     max_power: Optional[int]  = Query(None, description="Max power"),
     min_cost:  Optional[int]  = Query(None, description="Min cost"),
@@ -337,6 +339,10 @@ def get_cards(
     if parallel is not None:
         conditions.append("c.parallel = %s")
         params.append(parallel)
+
+    if variant_type:
+        conditions.append("c.variant_type ILIKE %s")
+        params.append(variant_type)
 
     if min_power is not None:
         conditions.append("c.power >= %s")
