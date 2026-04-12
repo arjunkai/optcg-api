@@ -8,11 +8,8 @@ import psycopg2
 from psycopg2.extras import execute_batch
 from pathlib import Path
 
-# ── Paste your Supabase connection string here ────────────────────────────────
-# Found in: Supabase dashboard → Project Settings → Database → Connection string → URI
-# It looks like: postgresql://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres
 import os
-DATABASE_URL = os.environ.get("DATABASE_URL", "REDACTED")
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 DATA_DIR = Path("data")
 
