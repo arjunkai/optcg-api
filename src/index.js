@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { registerSetRoutes } from './sets.js';
+import { registerCardRoutes } from './cards.js';
 
 const app = new Hono();
 
@@ -23,5 +25,8 @@ app.get('/', (c) => {
     ],
   });
 });
+
+registerSetRoutes(app);
+registerCardRoutes(app);
 
 export default app;
