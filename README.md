@@ -2,8 +2,8 @@
 
 A REST API for the One Piece Trading Card Game. Provides card and set data for all 4,347 cards across 51 sets, with filtering, pagination, and multi-set support for binder apps.
 
-**Live API:** `https://optcg-api-rm6b.onrender.com`  
-**Docs:** `https://optcg-api-rm6b.onrender.com/docs`
+**Live API:** `https://optcg-api.arjunbansal-ai.workers.dev`  
+**Docs:** `https://optcg-api.arjunbansal-ai.workers.dev/docs`
 
 ---
 
@@ -101,9 +101,9 @@ GET /sets/OP-01/cards
 ## Tech Stack
 
 - **Scraper:** Python + Playwright
-- **Database:** PostgreSQL (Supabase)
-- **API:** FastAPI + psycopg2
-- **Hosting:** Render
+- **Database:** Cloudflare D1 (SQLite)
+- **API:** Hono (JavaScript) on Cloudflare Workers
+- **Hosting:** Cloudflare Workers (zero cold starts)
 
 ---
 
@@ -112,22 +112,11 @@ GET /sets/OP-01/cards
 ```bash
 git clone https://github.com/arjunkai/optcg-api.git
 cd optcg-api
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+npm install
+npm run dev
 ```
 
-Create a `.env` file:
-```
-DATABASE_URL=your_supabase_connection_string
-```
-
-Start the server:
-```bash
-uvicorn main:app --reload
-```
-
-Open `http://localhost:8000/docs`
+Open `http://localhost:8787/docs`
 
 ---
 
