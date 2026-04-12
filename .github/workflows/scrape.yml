@@ -15,11 +15,18 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Python dependencies
         run: |
           pip install -r requirements.txt
           pip install playwright
           playwright install chromium
+
+      - name: Install Node dependencies
+        run: npm install
 
       - name: Run scraper
         run: python scraper.py
@@ -27,7 +34,8 @@ jobs:
       - name: Classify variants
         run: python classify_variants.py
 
-      - name: Import to database
+      - name: Import to D1
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python import.py
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/import-d1.js
