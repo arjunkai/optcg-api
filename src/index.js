@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { registerSetRoutes } from './sets.js';
 import { registerCardRoutes } from './cards.js';
+import { registerImageRoutes } from './images.js';
+import { registerDocsRoutes } from './docs.js';
 
 const app = new Hono();
 
@@ -28,5 +30,7 @@ app.get('/', (c) => {
 
 registerSetRoutes(app);
 registerCardRoutes(app);
+registerImageRoutes(app);
+registerDocsRoutes(app);
 
 export default app;
