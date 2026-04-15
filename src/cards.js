@@ -46,8 +46,11 @@ export function registerCardRoutes(app) {
     }
 
     if (q.name) {
-      conditions.push("c.name LIKE ? COLLATE NOCASE");
-      params.push(`%${q.name}%`);
+      conditions.push(
+        "(c.name LIKE ? COLLATE NOCASE OR EXISTS (SELECT 1 FROM json_each(c.types) WHERE json_each.value LIKE ? COLLATE NOCASE))"
+      );
+      const like = `%${q.name}%`;
+      params.push(like, like);
     }
 
     if (q.parallel !== undefined) {

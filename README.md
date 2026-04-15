@@ -38,7 +38,7 @@ A REST API for the One Piece Trading Card Game. Provides card and set data for a
 | `color` | string | `Red` | Filter by color |
 | `category` | string | `Leader` | Leader, Character, Event, Stage, Don |
 | `rarity` | string | `SuperRare` | Common, Uncommon, Rare, SuperRare, SecretRare, Leader |
-| `name` | string | `Luffy` | Partial name search |
+| `name` | string | `Luffy` | Partial match on card name or types (traits like `East Blue`, `Straw Hat Crew`) |
 | `parallel` | boolean | `true` | true = parallel only, false = base only |
 | `variant_type` | string | `manga` | alt_art, reprint, manga, serial |
 | `min_power` | int | `5000` | Minimum power |
@@ -55,6 +55,8 @@ A REST API for the One Piece Trading Card Game. Provides card and set data for a
 ```
 GET /cards?color=Red&category=Leader
 GET /cards?name=Luffy&min_power=5000
+GET /cards?name=East%20Blue
+GET /cards?name=Straw%20Hat%20Crew&color=Red
 GET /cards?set_id=OP-01&rarity=SecretRare
 GET /cards?variant_type=manga
 GET /cards/OP01-001

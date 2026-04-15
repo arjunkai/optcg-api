@@ -66,7 +66,7 @@ export function registerDocsRoutes(app) {
               { name: 'color', in: 'query', schema: { type: 'string' }, description: 'Red, Blue, Green, Purple, Black, Yellow' },
               { name: 'category', in: 'query', schema: { type: 'string' }, description: 'Leader, Character, Event, Stage, Don' },
               { name: 'rarity', in: 'query', schema: { type: 'string' }, description: 'Leader, Common, Uncommon, Rare, SuperRare, SecretRare' },
-              { name: 'name', in: 'query', schema: { type: 'string' }, description: 'Partial name search' },
+              { name: 'name', in: 'query', schema: { type: 'string' }, description: 'Partial match on card name or types (traits like "East Blue", "Straw Hat Crew")' },
               { name: 'parallel', in: 'query', schema: { type: 'boolean' }, description: 'true=parallel only, false=base only' },
               { name: 'variant_type', in: 'query', schema: { type: 'string' }, description: 'alt_art, reprint, manga, serial' },
               { name: 'min_power', in: 'query', schema: { type: 'integer' }, description: 'Min power' },
