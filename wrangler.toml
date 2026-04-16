@@ -6,3 +6,7 @@ compatibility_date = "2024-01-01"
 binding = "DB"
 database_name = "optcg-cards"
 database_id = "111dd49b-f7ec-472b-b23f-5b2191edb9ce"
+
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "optcg-images"
