@@ -31,11 +31,13 @@ RARITY_MAP = {
     "C":   "Common",
     "UC":  "Uncommon",
     "R":   "Rare",
-    "SR":  "SuperRare",
-    "SEC": "SecretRare",
+    "SR":  "Super Rare",
+    "SEC": "Secret Rare",
     "SP":  "Special",
-    "TR":  "TreasureRare",
+    "TR":  "Treasure Rare",
     "PR":  "Promo",
+    "P":   "Promo",
+    "SP CARD": "Special",
 }
 
 CATEGORY_MAP = {
@@ -61,7 +63,7 @@ EXTRACT_JS = """
     const id       = dl.id;                         // "OP01-001" or "OP01-001_p1"
     const parallel = /_[pr]\\d+$/.test(id);
     const base_id  = parallel ? id.replace(/_[pr]\\d+$/, '') : null;
-    const variant_type = !parallel ? null : /_r\\d+$/.test(id) ? 'reprint' : 'alt_art';
+    const variant_type = !parallel ? null : /_r\\d+$/.test(id) ? 'Reprint' : 'Alternate Art';
 
     const spans    = [...dl.querySelectorAll('dt .infoCol span')];
     const rarityRaw   = spans[1]?.textContent.trim()  || null;  // "L", "C", "SR"…

@@ -6,6 +6,7 @@ CREATE TABLE sets (
   id TEXT PRIMARY KEY,
   pack_id TEXT NOT NULL,
   label TEXT NOT NULL,
+  type TEXT,
   card_count INTEGER NOT NULL
 );
 

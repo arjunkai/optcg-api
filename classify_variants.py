@@ -1,7 +1,7 @@
 """
 classify_variants.py — auto-classify parallel card variant types
 Scrapes Limitless TCG search filters to identify manga and serial cards.
-All other _p variants default to alt_art, _r variants to reprint.
+All other _p variants default to Alternate Art, _r variants to Reprint.
 
 Run: python classify_variants.py
 Output: data/variant_types.json
@@ -17,8 +17,8 @@ OUT = Path("data/variant_types.json")
 
 # Limitless search queries and the variant_type they map to
 QUERIES = {
-    "manga": "is:manga format:english",
-    "serial": "is:serial format:english",
+    "Manga Art": "is:manga format:english",
+    "Serial": "is:serial format:english",
 }
 
 

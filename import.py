@@ -25,11 +25,12 @@ def main():
 
     print(f"Importing {len(sets)} sets...")
     execute_batch(cur, """
-        INSERT INTO sets (id, pack_id, label, card_count)
-        VALUES (%(set_id)s, %(pack_id)s, %(label)s, %(count)s)
+        INSERT INTO sets (id, pack_id, label, type, card_count)
+        VALUES (%(set_id)s, %(pack_id)s, %(label)s, %(type)s, %(count)s)
         ON CONFLICT (id) DO UPDATE SET
             pack_id    = EXCLUDED.pack_id,
             label      = EXCLUDED.label,
+            type       = EXCLUDED.type,
             card_count = EXCLUDED.card_count
     """, sets)
     print(f"  ✅ {len(sets)} sets inserted")
