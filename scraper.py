@@ -166,6 +166,21 @@ def clean_card(raw: dict, set_id: str, pack_id: str) -> dict:
         m = re.search(r"\d+", val)
         return int(m.group()) if m else None
 
+    # Determine finish based on rarity and variant
+    vt = raw.get("variant_type")
+    if vt in ("Alternate Art", "Manga Art", "Serial"):
+        fin = "textured"
+    elif vt == "Reprint":
+        fin = "holo"
+    elif rarity in ("Secret Rare", "Treasure Rare"):
+        fin = "textured"
+    elif rarity in ("Super Rare", "Leader", "Special", "Promo"):
+        fin = "holo"
+    elif rarity == "Rare":
+        fin = "foil"
+    else:
+        fin = "standard"
+
     return {
         "id":         raw["id"],
         "base_id":    raw["base_id"],
@@ -175,6 +190,7 @@ def clean_card(raw: dict, set_id: str, pack_id: str) -> dict:
         "set_id":     set_id,
         "pack_id":    pack_id,
         "rarity":     rarity,
+        "finish":     fin,
         "category":   category,
         "image_url":  raw["image_url"],
         "colors":     split_arr(raw["colors_raw"]),        # ["Red", "Yellow"]
