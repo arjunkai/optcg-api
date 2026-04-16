@@ -63,6 +63,11 @@ export function registerCardRoutes(app) {
       params.push(q.variant_type);
     }
 
+    if (q.finish) {
+      conditions.push('c.finish = ? COLLATE NOCASE');
+      params.push(q.finish);
+    }
+
     if (q.min_power) {
       conditions.push('c.power >= ?');
       params.push(Number(q.min_power));
