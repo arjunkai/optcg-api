@@ -173,7 +173,7 @@ def clean_card(raw: dict, set_id: str, pack_id: str) -> dict:
     elif vt == "Reprint":
         fin = "holo"
     elif rarity in ("Secret Rare", "Treasure Rare"):
-        fin = "textured"
+        fin = "textured-gold"
     elif rarity in ("Super Rare", "Leader", "Special", "Promo"):
         fin = "holo"
     elif rarity == "Rare":
