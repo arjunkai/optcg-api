@@ -18,6 +18,7 @@ CREATE TABLE cards (
   name TEXT NOT NULL,
   rarity TEXT,
   category TEXT,
+  finish TEXT,
   image_url TEXT,
   colors TEXT,
   cost INTEGER,
