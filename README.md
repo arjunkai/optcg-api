@@ -89,36 +89,53 @@ GET /sets/OP-01/cards
   "price": 1.23,
   "tcg_ids": [482196],
   "price_updated_at": 1776432551,
+  "price_source": "tcgplayer",
   "sets": [{ "id": "OP-01", "label": "BOOSTER PACK -ROMANCE DAWN- [OP-01]" }]
 }
 ```
 
 ### Prices & DON Cards
 
-- Every priced card has `price` (USD, from TCGPlayer), `tcg_ids` (array of TCGPlayer product IDs), and `price_updated_at` (unix timestamp of last refresh).
+- Every priced card has `price` (USD), `tcg_ids` (array of TCGPlayer product IDs), `price_updated_at` (unix timestamp), and `price_source` for provenance.
 - DON cards have synthetic IDs `DON-001` through `DON-195` and `category: "Don"`. Filter with `?category=Don`.
-- Prices refresh weekly via the scheduled GitHub Actions workflow.
+- Prices refresh weekly via the scheduled GitHub Actions workflow (Mondays 6am UTC).
+
+### Price sources
+
+Prices are aggregated from multiple sources. Every row is tagged with the source it came from — useful for filtering or auditing.
+
+| `price_source` | Description | Priority |
+|---|---|---|
+| `manual` | Pinned override from `data/manual_prices.json` (always wins) | Highest |
+| `web_tcgplayer`, `web_cardmarket`, `web_pricecharting`, `web_ebay`, … | Firecrawl web-search fallback for cards the primary sources don't cover | High |
+| `tcgplayer` | Scraped from TCGPlayer price guides — the default source for ~90% of cards | Medium |
+| `dotgg` | Fetched from api.dotgg.gg as a fallback | Low |
+
+Each higher-priority source skips rows already populated by a higher tier on re-runs, so a refresh never clobbers a manual override.
 
 ---
 
 ## Data Coverage
 
-- **4,346+ unique cards** across **51 sets** + **195 DON cards**
+- **4,566 unique cards** across **51 sets** + **195 DON cards**
 - Booster packs OP-01 through OP-15
 - Starter decks ST-01 through ST-29
 - Extra Boosters, Premium Boosters, Promos
 - Parallel/alt-art cards tracked with `base_id` reference
 - Variant types auto-classified: `alt_art`, `reprint`, `manga`, `serial`
 - Cards appearing in multiple sets fully supported via junction table
-- TCGPlayer market prices on 3,200+ cards + all DON cards, refreshed weekly
+- **~99.6% price coverage** via TCGPlayer + dotgg.gg + Firecrawl web-search + manual overrides, refreshed weekly
 
 ---
 
 ## Tech Stack
 
-- **Scraper:** Python + Playwright
+- **Card scraper:** Python + Playwright (official site)
+- **Price scraper:** Python + Playwright (TCGPlayer), Firecrawl (web search fallback)
+- **Variant classifier:** httpx + Limitless TCG
 - **Database:** Cloudflare D1 (SQLite)
 - **API:** Hono (JavaScript) on Cloudflare Workers
+- **CI:** GitHub Actions, weekly cron
 - **Hosting:** Cloudflare Workers (zero cold starts)
 
 ---
