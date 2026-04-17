@@ -2,7 +2,11 @@ import { parseCard, parseCards } from './db.js';
 
 export function registerCardRoutes(app) {
   app.get('/cards/:card_id', async (c) => {
-    const cardId = c.req.param('card_id').toUpperCase();
+    // Uppercase the set prefix (OP05-119) but preserve the variant suffix
+    // (_p8, _r1) since D1 stores those lowercase. Match `^[base-id](_[pr]\d+)?$`.
+    const raw = c.req.param('card_id');
+    const m = raw.match(/^([^_]+)(_[a-zA-Z]\d+)?$/);
+    const cardId = m ? m[1].toUpperCase() + (m[2] ? m[2].toLowerCase() : '') : raw.toUpperCase();
 
     const card = await c.env.DB.prepare(
       'SELECT * FROM cards WHERE id = ?'
@@ -88,6 +92,28 @@ export function registerCardRoutes(app) {
       params.push(Number(q.max_cost));
     }
 
+    if (q.min_price) {
+      conditions.push('c.price >= ?');
+      params.push(Number(q.min_price));
+    }
+
+    if (q.max_price) {
+      conditions.push('c.price <= ?');
+      params.push(Number(q.max_price));
+    }
+
+    const sortMap = {
+      id: 'c.id',
+      name: 'c.name',
+      price: 'c.price',
+      power: 'c.power',
+      cost: 'c.cost',
+    };
+    const sortCol = sortMap[q.sort] || 'c.id';
+    const sortDir = q.order?.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    const nullsOrder = sortCol === 'c.id' ? '' : ` NULLS ${sortDir === 'DESC' ? 'FIRST' : 'LAST'}`;
+    const orderBy = `ORDER BY ${sortCol} ${sortDir}${nullsOrder}, c.id ASC`;
+
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(500, Math.max(1, Number(q.page_size) || 50));
     const offset = (page - 1) * pageSize;
@@ -99,7 +125,7 @@ export function registerCardRoutes(app) {
     ).bind(...params).first();
 
     const { results } = await c.env.DB.prepare(
-      `SELECT c.* FROM cards c ${where} ORDER BY c.id LIMIT ? OFFSET ?`
+      `SELECT c.* FROM cards c ${where} ${orderBy} LIMIT ? OFFSET ?`
     ).bind(...params, pageSize, offset).all();
 
     return c.json({

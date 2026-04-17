@@ -6,6 +6,7 @@ export function parseCard(row) {
     colors: row.colors ? JSON.parse(row.colors) : null,
     attributes: row.attributes ? JSON.parse(row.attributes) : null,
     types: row.types ? JSON.parse(row.types) : null,
+    tcg_ids: row.tcg_ids ? JSON.parse(row.tcg_ids) : null,
     trigger: row.trigger_text,
     trigger_text: undefined,
   };

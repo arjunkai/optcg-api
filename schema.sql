@@ -27,7 +27,14 @@ CREATE TABLE cards (
   attributes TEXT,
   types TEXT,
   effect TEXT,
-  trigger_text TEXT
+  trigger_text TEXT,
+  price REAL,
+  foil_price REAL,
+  delta_price REAL,
+  delta_7d_price REAL,
+  tcg_ids TEXT,
+  price_updated_at INTEGER,
+  price_source TEXT
 );
 
 CREATE TABLE card_sets (
@@ -41,5 +48,8 @@ CREATE INDEX idx_cards_category ON cards(category);
 CREATE INDEX idx_cards_rarity ON cards(rarity);
 CREATE INDEX idx_cards_parallel ON cards(parallel);
 CREATE INDEX idx_cards_variant_type ON cards(variant_type);
+CREATE INDEX idx_cards_price ON cards(price);
+CREATE INDEX idx_cards_price_updated_at ON cards(price_updated_at);
+CREATE INDEX idx_cards_price_source ON cards(price_source);
 CREATE INDEX idx_card_sets_set_id ON card_sets(set_id);
 CREATE INDEX idx_card_sets_card_id ON card_sets(card_id);

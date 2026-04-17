@@ -2,8 +2,11 @@
 .venv/
 __pycache__/
 *.pyc
-data/
+data/*
+!data/manual_prices.json
 .claude/
 scripts/import*.sql
+scripts/*_batches/
 node_modules/
 .wrangler/
+docs/superpowers/

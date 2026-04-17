@@ -1,6 +1,6 @@
 # OPTCG API
 
-A REST API for the One Piece Trading Card Game. Provides card and set data for all 4,347 cards across 51 sets, with filtering, pagination, and multi-set support for binder apps.
+A REST API for the One Piece Trading Card Game. Provides card and set data for all 4,347+ cards across 51 sets, plus DON cards and TCGPlayer market prices, with filtering, pagination, and multi-set support for binder apps.
 
 **Live API:** `https://optcg-api.arjunbansal-ai.workers.dev`  
 **Docs:** `https://optcg-api.arjunbansal-ai.workers.dev/docs`
@@ -45,6 +45,10 @@ A REST API for the One Piece Trading Card Game. Provides card and set data for a
 | `max_power` | int | `9000` | Maximum power |
 | `min_cost` | int | `1` | Minimum cost |
 | `max_cost` | int | `5` | Maximum cost |
+| `min_price` | number | `1.00` | Minimum market price (USD) |
+| `max_price` | number | `100.00` | Maximum market price (USD) |
+| `sort` | string | `price` | Sort field: `id`, `name`, `price`, `power`, `cost` |
+| `order` | string | `desc` | Sort direction: `asc`, `desc` |
 | `page` | int | `1` | Page number |
 | `page_size` | int | `50` | Results per page (max 500) |
 
@@ -82,21 +86,31 @@ GET /sets/OP-01/cards
   "parallel": false,
   "variant_type": null,
   "image_url": "https://en.onepiece-cardgame.com/images/cardlist/card/OP01-001.png",
+  "price": 1.23,
+  "tcg_ids": [482196],
+  "price_updated_at": 1776432551,
   "sets": [{ "id": "OP-01", "label": "BOOSTER PACK -ROMANCE DAWN- [OP-01]" }]
 }
 ```
+
+### Prices & DON Cards
+
+- Every priced card has `price` (USD, from TCGPlayer), `tcg_ids` (array of TCGPlayer product IDs), and `price_updated_at` (unix timestamp of last refresh).
+- DON cards have synthetic IDs `DON-001` through `DON-195` and `category: "Don"`. Filter with `?category=Don`.
+- Prices refresh weekly via the scheduled GitHub Actions workflow.
 
 ---
 
 ## Data Coverage
 
-- **4,346 unique cards** across **51 sets**
+- **4,346+ unique cards** across **51 sets** + **195 DON cards**
 - Booster packs OP-01 through OP-15
 - Starter decks ST-01 through ST-29
 - Extra Boosters, Premium Boosters, Promos
 - Parallel/alt-art cards tracked with `base_id` reference
 - Variant types auto-classified: `alt_art`, `reprint`, `manga`, `serial`
 - Cards appearing in multiple sets fully supported via junction table
+- TCGPlayer market prices on 3,200+ cards + all DON cards, refreshed weekly
 
 ---
 

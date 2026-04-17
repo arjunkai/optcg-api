@@ -1,0 +1,24 @@
+{
+  "_comment": "Manual price overrides for cards TCGPlayer + dotgg don't cover. Entries with `price: null` are skipped by the importer — fill in a number to apply. Once applied, these pin FOREVER until you remove the entry here, because TCGPlayer/dotgg imports skip rows where price_source='manual'. Sources to research: Cardmarket (EU), eBay sold listings, Collectr app, TCGKing blog.",
+
+  "OP10-108_p2":  { "price": null, "note": "Scratchmen Apoo alt_art — extra variant beyond TCGPlayer listings" },
+  "OP12-020_p2":  { "price": null, "note": "Roronoa Zoro SERIAL — rare, check eBay sold" },
+  "OP13-043_p1":  { "price": null, "note": "Otama alt_art" },
+  "OP14-033_p2":  { "price": null, "note": "Perona alt_art" },
+
+  "P-001_p6":     { "price": null, "note": "Monkey.D.Luffy promo alt_art — 6th variant" },
+  "P-069_p5":     { "price": null, "note": "Koala promo alt_art" },
+  "P-069_p6":     { "price": null, "note": "Koala promo alt_art" },
+  "P-103_p2":     { "price": null, "note": "Portgas.D.Ace promo alt_art" },
+  "P-104_p2":     { "price": null, "note": "Shanks promo alt_art" },
+  "P-119":        { "price": null, "note": "Portgas.D.Ace promo base — truly not on TCGPlayer" },
+
+  "ST03-002_r1":  { "price": null, "note": "Edward Weevil reprint" },
+  "ST11-001_p1":  { "price": null, "note": "Uta alt_art" },
+  "ST13-007_p2":  { "price": null, "note": "Sabo alt_art" },
+  "ST18-001_p3":  { "price": null, "note": "Uso-Hachi alt_art" },
+  "ST18-002_p2":  { "price": null, "note": "O-Nami alt_art" },
+  "ST19-002_p3":  { "price": null, "note": "Sengoku alt_art" },
+  "ST20-003_p1":  { "price": null, "note": "Charlotte Brulee alt_art" },
+  "ST21-001_p2":  { "price": null, "note": "Monkey.D.Luffy alt_art" }
+}

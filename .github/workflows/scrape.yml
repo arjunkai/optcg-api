@@ -39,3 +39,60 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-d1.js
+
+      - name: Scrape TCGPlayer prices
+        run: python scripts/scrape_tcgplayer_prices_pw.py
+
+      # dotgg provides the authoritative tcg_id <-> card_id map. Without it,
+      # we'd have to guess which TCGPlayer product corresponds to _p8 vs _p6
+      # positionally, which misassigns prices when TCGPlayer interleaves cheap
+      # promo variants with expensive alt-arts.
+      - name: Fetch dotgg catalog
+        run: python scripts/fetch_dotgg_catalog.py
+
+      - name: Build price catalog
+        run: python scripts/build_all_prices.py
+
+      - name: Import prices to D1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/import-prices-d1.js
+
+      - name: Build DON catalog
+        run: python scripts/build_don_cards.py
+
+      - name: Import DONs to D1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/import-don-d1.js
+
+      # Fallback source for cards TCGPlayer doesn't list (promo parallels,
+      # event-only reprints). Only writes to rows where price IS NULL, so it
+      # never overwrites a TCGPlayer or manual price.
+      - name: Backfill missing prices from dotgg.gg
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python scripts/backfill_prices_dotgg.py
+
+      # Last-resort: web search for anything still unpriced. Uses Firecrawl
+      # search (~20 credits/week — well under the free tier). Non-blocking so
+      # a missing API key or credit exhaustion doesn't fail the whole run.
+      - name: Web-search fallback for remaining gaps
+        continue-on-error: true
+        env:
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python scripts/backfill_prices_web.py
+
+      # Manual overrides always win — runs last, stamps price_source='manual',
+      # and TCGPlayer/dotgg imports above skip rows with that tag on future
+      # runs. Edit data/manual_prices.json to add or update entries.
+      - name: Apply manual price overrides
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/import-manual-prices.js
