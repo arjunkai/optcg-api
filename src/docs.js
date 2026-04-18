@@ -8,10 +8,10 @@ export function registerDocsRoutes(app) {
         version: '1.0.0',
         description:
           '**Free REST API for One Piece TCG card data + TCGPlayer prices.**\n\n' +
-          'Cards, sets, DON cards, prices, filters, and image proxying — built for ' +
+          'Cards, sets, DON cards, prices, filters, and image proxying. Built for ' +
           '[OPBindr](https://opbindr.com) and the OPTCG community.\n\n' +
           '- **4,566 cards + 195 DON cards**, ~99.6% priced weekly\n' +
-          '- Prices aggregated from TCGPlayer, dotgg.gg, and web search fallback — see `price_source` on each card for provenance\n' +
+          '- Prices aggregated from TCGPlayer, dotgg.gg, and web search fallback. Each card has a `price_source` field so you can see where its price came from.\n' +
           '- Pagination follows the [Pokemon TCG API](https://pokemontcg.io/) convention (`page` / `page_size`)\n' +
           '- Set/base card IDs are uppercase (`OP01-001`, `ST01-001`); variant suffixes are lowercase (`OP05-119_p8`, `OP05-119_r1`)\n' +
           '- DON cards use synthetic IDs `DON-001` through `DON-195` with `category=Don`\n' +
@@ -172,7 +172,7 @@ export function registerDocsRoutes(app) {
     return c.html(`<!DOCTYPE html>
 <html>
 <head>
-    <title>OPTCG API — Docs</title>
+    <title>OPTCG API Docs</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 </head>
