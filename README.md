@@ -107,7 +107,7 @@ Prices are aggregated from multiple sources. Every row is tagged with the source
 | `price_source` | Description | Priority |
 |---|---|---|
 | `manual` | Pinned override from `data/manual_prices.json` (always wins) | Highest |
-| `web_tcgplayer`, `web_cardmarket`, `web_pricecharting`, `web_ebay`, … | Firecrawl web-search fallback for cards the primary sources don't cover | High |
+| `web_tcgplayer`, `web_cardmarket`, `web_pricecharting`, `web_ebay`, etc. | Firecrawl web-search fallback for cards the primary sources don't cover | High |
 | `tcgplayer` | Scraped from TCGPlayer price guides. Default source for ~90% of cards | Medium |
 | `dotgg` | Fetched from api.dotgg.gg as a fallback | Low |
 
