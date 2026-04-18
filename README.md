@@ -102,13 +102,13 @@ GET /sets/OP-01/cards
 
 ### Price sources
 
-Prices are aggregated from multiple sources. Every row is tagged with the source it came from — useful for filtering or auditing.
+Prices are aggregated from multiple sources. Every row is tagged with the source it came from, so you can filter or audit.
 
 | `price_source` | Description | Priority |
 |---|---|---|
 | `manual` | Pinned override from `data/manual_prices.json` (always wins) | Highest |
 | `web_tcgplayer`, `web_cardmarket`, `web_pricecharting`, `web_ebay`, … | Firecrawl web-search fallback for cards the primary sources don't cover | High |
-| `tcgplayer` | Scraped from TCGPlayer price guides — the default source for ~90% of cards | Medium |
+| `tcgplayer` | Scraped from TCGPlayer price guides. Default source for ~90% of cards | Medium |
 | `dotgg` | Fetched from api.dotgg.gg as a fallback | Low |
 
 Each higher-priority source skips rows already populated by a higher tier on re-runs, so a refresh never clobbers a manual override.
