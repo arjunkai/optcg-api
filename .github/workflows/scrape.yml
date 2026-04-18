@@ -68,6 +68,27 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-don-d1.js
 
+      # Pulls each DON's TCGPlayer product image, flood-fills white corners
+      # to transparent, applies a rounded-rectangle card mask, uploads to R2
+      # under cards/DON-NNN.png. Skips any DON already curated from the high-res
+      # PDF extraction (data/don_image_mapping.json).
+      - name: Refresh DON images in R2
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          pip install Pillow
+          python scripts/clean_and_upload_tcg_dons.py
+
+      # Report any DONs whose served image is below the readable-when-enlarged
+      # threshold (700px wide). TCGPlayer sometimes only has low-res scans of
+      # older promo products — those show up here as STUCK_NO_SOURCE and need
+      # PDF curation or alternate sourcing.
+      - name: Audit DON image resolutions
+        continue-on-error: true
+        run: python scripts/audit_don_resolution.py
+
       # Fallback source for cards TCGPlayer doesn't list (promo parallels,
       # event-only reprints). Only writes to rows where price IS NULL, so it
       # never overwrites a TCGPlayer or manual price.

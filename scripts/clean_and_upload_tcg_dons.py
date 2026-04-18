@@ -24,47 +24,16 @@ import sys
 import tempfile
 import time
 import urllib.request
-from collections import deque
 from pathlib import Path
 from PIL import Image
 
+sys.path.insert(0, str(Path(__file__).parent))
+from crop_don_images import clip_to_rounded_card  # noqa: E402
+
 BUCKET = "optcg-images"
-WHITE_THRESHOLD = 235
 DON_CARDS_PATH = Path("data/don_cards.json")
 MAPPING_PATH = Path("data/don_image_mapping.json")
 USER_AGENT = "Mozilla/5.0 (optcg-api image migrator)"
-
-
-def flood_white_to_transparent(img: Image.Image) -> tuple[Image.Image, int]:
-    img = img.convert("RGBA")
-    w, h = img.size
-    px = img.load()
-
-    def is_white(x: int, y: int) -> bool:
-        r, g, b, a = px[x, y]
-        if a == 0:
-            return False
-        return r >= WHITE_THRESHOLD and g >= WHITE_THRESHOLD and b >= WHITE_THRESHOLD
-
-    visited: set[tuple[int, int]] = set()
-    queue: deque[tuple[int, int]] = deque()
-    for seed in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]:
-        if is_white(*seed):
-            queue.append(seed)
-            visited.add(seed)
-
-    cleared = 0
-    while queue:
-        x, y = queue.popleft()
-        r, g, b, _ = px[x, y]
-        px[x, y] = (r, g, b, 0)
-        cleared += 1
-        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            nx, ny = x + dx, y + dy
-            if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in visited and is_white(nx, ny):
-                visited.add((nx, ny))
-                queue.append((nx, ny))
-    return img, cleared
 
 
 def fetch_tcg_image(tcg_id: int) -> bytes | None:
@@ -145,12 +114,12 @@ def main() -> None:
             fail += 1
             continue
 
-        cleaned, cleared = flood_white_to_transparent(img)
+        cleaned = clip_to_rounded_card(img)
         buf = io.BytesIO()
         cleaned.save(buf, "PNG")
 
         if upload_to_r2(buf.getvalue(), f"cards/{don_id}.png"):
-            print(f"{prefix}  OK   cleared {cleared:,}px  {name}")
+            print(f"{prefix}  OK   {cleaned.size[0]}x{cleaned.size[1]}  {name}")
             ok += 1
         else:
             fail += 1
