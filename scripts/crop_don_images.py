@@ -70,8 +70,14 @@ def find_content_bbox(img: Image.Image) -> tuple[int, int, int, int]:
 
 def clip_to_rounded_card(img: Image.Image) -> Image.Image:
     """Apply a rounded-rectangle alpha mask sized to the card's content
-    bounding box. Preserves original RGB; sets alpha=0 outside the mask.
+    bounding box and zero out RGB wherever the image is transparent.
+
+    Zeroing RGB on transparent pixels prevents white-fringe halos when an
+    alpha-unaware renderer (or an aggressive image scaler like wsrv.nl)
+    samples the RGB values past the alpha boundary.
     """
+    from PIL import ImageChops
+
     img = img.convert("RGBA")
     w, h = img.size
     left, top, right, bottom = find_content_bbox(img)
@@ -92,10 +98,18 @@ def clip_to_rounded_card(img: Image.Image) -> Image.Image:
 
     # Combine existing alpha (preserve already-transparent pixels) with mask
     existing_alpha = img.getchannel("A")
-    from PIL import ImageChops
     new_alpha = ImageChops.multiply(existing_alpha, mask)
-
     img.putalpha(new_alpha)
+
+    # Premultiply RGB by the new alpha mask. Any pixel with alpha=0 gets
+    # RGB=(0,0,0) so a broken-alpha downstream (or mipmap bleed during scaling)
+    # shows dark instead of white.
+    r, g, b, a = img.split()
+    r = ImageChops.multiply(r, new_alpha)
+    g = ImageChops.multiply(g, new_alpha)
+    b = ImageChops.multiply(b, new_alpha)
+    img = Image.merge("RGBA", (r, g, b, a))
+
     return img
 
 
