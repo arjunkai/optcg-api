@@ -28,7 +28,13 @@ const __dirname = path.dirname(__filename);
 const npx = platform() === 'win32' ? 'npx.cmd' : 'npx';
 const API_BASE = 'https://optcg-api.arjunbansal-ai.workers.dev';
 
-const SQL = `UPDATE cards SET image_url = '${API_BASE}/images/' || id WHERE category = 'Don';`;
+// Bump IMAGE_VERSION to bust wsrv.nl + browser caches (max-age=31536000)
+// when the R2 contents change meaningfully. The ?v=N query is passed
+// through by src/images.js as a no-op server-side, but it changes the
+// cache key everywhere upstream.
+const IMAGE_VERSION = 2;
+
+const SQL = `UPDATE cards SET image_url = '${API_BASE}/images/' || id || '?v=${IMAGE_VERSION}' WHERE category = 'Don';`;
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');

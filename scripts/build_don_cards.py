@@ -31,6 +31,10 @@ OUT_PATH = DATA_DIR / "don_cards.json"
 # high-res PDF images) and falls back to TCGPlayer CDN for uncurated cards.
 # See src/images.js for the routing logic.
 API_BASE = "https://optcg-api.arjunbansal-ai.workers.dev"
+# Bump when R2 image contents change meaningfully. Must match IMAGE_VERSION
+# in scripts/update_don_image_urls.js — the query param busts wsrv.nl + browser
+# caches without requiring us to change the R2 keys.
+IMAGE_VERSION = 2
 
 # Sets to process last (reprint bundles). A DON that also appears in a regular
 # set will be attributed to the regular set, which matches release history.
@@ -108,7 +112,7 @@ def main() -> None:
             "set_id": data["set_id"],
             "category": "Don",
             "rarity": "Don",
-            "image_url": f"{API_BASE}/images/{don_id}",
+            "image_url": f"{API_BASE}/images/{don_id}?v={IMAGE_VERSION}",
             "price": data["price"],
             "tcg_ids": [tcg_id],
             "price_updated_at": now,
