@@ -98,6 +98,7 @@ GET /sets/OP-01/cards
 
 - Every priced card has `price` (USD), `tcg_ids` (array of TCGPlayer product IDs), `price_updated_at` (unix timestamp), and `price_source` for provenance.
 - DON cards have synthetic IDs `DON-001` through `DON-195` and `category: "Don"`. Filter with `?category=Don`.
+- DON `image_url` points at `/images/DON-NNN` on this API. The image route checks a Cloudflare R2 bucket first (curated high-res PDF scans), then falls back to TCGPlayer CDN for uncurated cards. Curated + uncurated DONs use the same URL.
 - Prices refresh weekly via the scheduled GitHub Actions workflow (Mondays 6am UTC).
 
 ### Price sources

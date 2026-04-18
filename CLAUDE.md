@@ -19,7 +19,7 @@ Live: `https://optcg-api.arjunbansal-ai.workers.dev`  ·  Docs: `/docs`  ·  Ope
 - `src/index.js` — Hono router + CORS, registers all routes
 - `src/cards.js` — `/cards` search + `/cards/:id` single-card endpoints
 - `src/sets.js` — `/sets` list + `/sets/:id/cards` set-cards
-- `src/images.js` — proxies card images from official site with CORS
+- `src/images.js` — `/images/:card_id` proxy. Order: R2 (`cards/{id}.png`) → DON TCGPlayer CDN via D1 `tcg_ids` → official site fallback for regular cards
 - `src/docs.js` — OpenAPI spec + Scalar docs page
 - `src/db.js` — row → JSON normalization (handles JSON-encoded columns)
 - `schema.sql` — full schema snapshot
@@ -50,7 +50,16 @@ node scripts/import-don-d1.js                      # -> D1
 ```
 
 ## DON cards
-Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPlayer DON rows across 50 sets. Canonical set attribution prefers regular packs over PRB reprint bundles. Images currently point at TCGPlayer CDN; R2-hosted high-res migration deferred (see memory `project_pricing_pipeline`).
+Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPlayer DON rows across 50 sets. Canonical set attribution prefers regular packs over PRB reprint bundles.
+
+**Image serving:** DON `image_url` points at `/images/DON-NNN` on this API. The route checks R2 bucket `optcg-images` first (curated high-res PDF images, key = `cards/DON-NNN.png`), falls back to TCGPlayer CDN via `tcg_ids` lookup in D1 if not in R2. This means curated + uncurated DONs use the same URL and images transparently upgrade once the R2 object exists.
+
+**R2 curation workflow** (run when adding more PDF-sourced DON images):
+1. `scripts/curate_don_images.html` — open locally (`python -m http.server 8080` in repo root, then visit `http://localhost:8080/scripts/curate_don_images.html`). Click candidates to map `DON-NNN → don_NNN.png`; export JSON when done.
+2. Save exported JSON as `data/don_image_mapping.json`.
+3. `node scripts/upload_don_images_r2.js --dry-run` to verify, then without flag to upload.
+
+**Important:** `scripts/build_don_cards.py` writes the API proxy URL into `image_url`. Don't revert it to `tcgplayer-cdn.tcgplayer.com` or the weekly refresh will break the proxy behavior.
 
 ## Pricing
 - `price` REAL, `foil_price` REAL (unused), `delta_price`/`delta_7d_price` (future), `tcg_ids` TEXT (JSON array), `price_updated_at` INTEGER, `price_source` TEXT

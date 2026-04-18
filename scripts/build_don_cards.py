@@ -27,6 +27,11 @@ DATA_DIR = Path("data")
 RAW_DIR = DATA_DIR / "tcgplayer_raw"
 OUT_PATH = DATA_DIR / "don_cards.json"
 
+# DON images are served through the API proxy, which checks R2 first (curated
+# high-res PDF images) and falls back to TCGPlayer CDN for uncurated cards.
+# See src/images.js for the routing logic.
+API_BASE = "https://optcg-api.arjunbansal-ai.workers.dev"
+
 # Sets to process last (reprint bundles). A DON that also appears in a regular
 # set will be attributed to the regular set, which matches release history.
 DEPRIORITIZED_PREFIXES = ("PRB-",)
@@ -103,7 +108,7 @@ def main() -> None:
             "set_id": data["set_id"],
             "category": "Don",
             "rarity": "Don",
-            "image_url": f"https://tcgplayer-cdn.tcgplayer.com/product/{tcg_id}_in_1000x1000.jpg",
+            "image_url": f"{API_BASE}/images/{don_id}",
             "price": data["price"],
             "tcg_ids": [tcg_id],
             "price_updated_at": now,

@@ -7,8 +7,6 @@ binding = "DB"
 database_name = "optcg-cards"
 database_id = "111dd49b-f7ec-472b-b23f-5b2191edb9ce"
 
-# Uncomment after enabling R2 in Cloudflare Dashboard and creating the bucket:
-# npx wrangler r2 bucket create optcg-images
-# [[r2_buckets]]
-# binding = "IMAGES"
-# bucket_name = "optcg-images"
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "optcg-images"

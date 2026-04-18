@@ -4,9 +4,11 @@ __pycache__/
 *.pyc
 data/*
 !data/manual_prices.json
+!data/don_image_mapping.json
 .claude/
 scripts/import*.sql
 scripts/*_batches/
+scripts/.tmp/
 node_modules/
 .wrangler/
 docs/superpowers/

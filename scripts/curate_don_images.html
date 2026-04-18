@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>DON Image Curation</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 16px;
+    background: #0d0d0d; color: #e5e5e5;
+    font: 14px/1.4 -apple-system, system-ui, sans-serif;
+  }
+  h1 { font-size: 16px; margin: 0 0 8px; }
+  .bar {
+    display: flex; gap: 12px; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid #2a2a2a;
+    position: sticky; top: 0; background: #0d0d0d; z-index: 10;
+  }
+  button {
+    background: #1a1a1a; color: #e5e5e5; border: 1px solid #333;
+    padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
+  }
+  button:hover { background: #222; }
+  button.primary { background: #3b82f6; border-color: #3b82f6; color: white; }
+  button.primary:hover { background: #2563eb; }
+  button.skip { background: #333; }
+  .progress { color: #9ca3af; font-size: 12px; }
+  .stage {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 16px;
+  }
+  .panel { border: 1px solid #2a2a2a; border-radius: 6px; padding: 12px; }
+  .panel h2 {
+    font-size: 13px; color: #9ca3af; margin: 0 0 8px;
+    text-transform: uppercase; letter-spacing: .5px;
+  }
+  .tcg-card { display: flex; gap: 12px; align-items: flex-start; }
+  .tcg-card img {
+    width: 300px; max-width: 100%; border-radius: 4px; background: #1a1a1a;
+  }
+  .tcg-card .meta { flex: 1; min-width: 0; }
+  .tcg-card .name { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .tcg-card .kv { color: #9ca3af; font-size: 12px; }
+  .candidates {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  }
+  .candidate {
+    position: relative; border: 2px solid transparent; border-radius: 4px;
+    cursor: pointer; background: #1a1a1a; overflow: hidden;
+    aspect-ratio: 1701 / 2386;
+  }
+  .candidate:hover { border-color: #3b82f6; }
+  .candidate.used { opacity: 0.35; cursor: not-allowed; }
+  .candidate.used:hover { border-color: #555; }
+  .candidate img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .candidate .label {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(0,0,0,0.85); color: #fff;
+    padding: 3px 6px; font-size: 11px; font-family: monospace;
+  }
+  .candidate .used-tag {
+    position: absolute; top: 4px; right: 4px;
+    background: #10b981; color: #fff;
+    padding: 2px 6px; font-size: 10px; border-radius: 3px;
+  }
+  .hint { color: #6b7280; font-size: 12px; margin-top: 6px; }
+  .empty {
+    padding: 40px; text-align: center; color: #6b7280;
+    border: 1px dashed #333; border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+<h1>DON image curation — map PDF images to DON-NNN cards</h1>
+<div class="bar">
+  <button id="prev">&#x25C0; prev</button>
+  <button id="next">next &#x25B6;</button>
+  <button id="skip" class="skip">skip (no match)</button>
+  <button id="export" class="primary">export mapping JSON</button>
+  <span class="progress" id="progress"></span>
+  <span class="hint">keys: &larr; &rarr; = navigate &middot; s = skip &middot; 1-9 = pick candidate &middot; e = export</span>
+</div>
+<div id="view"></div>
+
+<script>
+let dons = [];
+let images = [];
+let mapping = {};
+let idx = 0;
+
+async function load() {
+  const [d, m] = await Promise.all([
+    fetch('../data/don_cards.json').then(r => r.json()),
+    fetch('../data/don_image_map.json').then(r => r.json()),
+  ]);
+  dons = d;
+  images = m;
+
+  try {
+    mapping = JSON.parse(localStorage.getItem('don_mapping') || '{}');
+  } catch { mapping = {}; }
+
+  render();
+}
+
+function save() {
+  localStorage.setItem('don_mapping', JSON.stringify(mapping));
+}
+
+function imagesForSet(setId) {
+  const exact = images.filter(i => i.set_id === setId);
+  return exact.length ? exact : images;
+}
+
+function usedFilenames() {
+  return new Set(Object.values(mapping).filter(v => v && v !== '__skipped__'));
+}
+
+function el(tag, props = {}, children = []) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'class') node.className = v;
+    else if (k === 'text') node.textContent = v;
+    else if (k.startsWith('data-')) node.setAttribute(k, v);
+    else if (k === 'onClick') node.addEventListener('click', v);
+    else node[k] = v;
+  }
+  for (const c of children) if (c) node.appendChild(c);
+  return node;
+}
+
+function render() {
+  const view = document.getElementById('view');
+  view.textContent = '';
+  const don = dons[idx];
+  const used = usedFilenames();
+  const candidates = imagesForSet(don.set_id);
+  const mappedCount = Object.values(mapping).filter(v => v && v !== '__skipped__').length;
+
+  document.getElementById('progress').textContent =
+    `card ${idx + 1} / ${dons.length} · ${Object.keys(mapping).length} / ${dons.length} decided · ${mappedCount} mapped`;
+
+  const stage = el('div', { class: 'stage' });
+
+  // --- TCGPlayer panel ---
+  const leftPanel = el('div', { class: 'panel' });
+  leftPanel.appendChild(el('h2', { text: `TCGPlayer (${don.id})` }));
+  const tcgCard = el('div', { class: 'tcg-card' });
+  const tcgImg = el('img', { src: don.image_url, alt: don.name });
+  tcgImg.addEventListener('error', () => { tcgImg.style.opacity = 0.3; });
+  tcgCard.appendChild(tcgImg);
+  const meta = el('div', { class: 'meta' });
+  meta.appendChild(el('div', { class: 'name', text: don.name }));
+  const setKv = el('div', { class: 'kv' });
+  setKv.appendChild(document.createTextNode('set: '));
+  setKv.appendChild(el('strong', { text: don.set_id }));
+  meta.appendChild(setKv);
+  meta.appendChild(el('div', { class: 'kv', text: `tcg_id: ${don.tcg_ids[0]}` }));
+  meta.appendChild(el('div', { class: 'kv', text: `price: $${don.price ?? '—'}` }));
+  if (mapping[don.id]) {
+    const note = el('div', { class: 'hint' });
+    note.appendChild(document.createTextNode('currently mapped: '));
+    note.appendChild(el('strong', { text: mapping[don.id] }));
+    meta.appendChild(note);
+  }
+  tcgCard.appendChild(meta);
+  leftPanel.appendChild(tcgCard);
+  stage.appendChild(leftPanel);
+
+  // --- Candidates panel ---
+  const rightPanel = el('div', { class: 'panel' });
+  rightPanel.appendChild(el('h2', {
+    text: `PDF candidates (set: ${don.set_id}) — ${candidates.length} images`,
+  }));
+  if (candidates.length === 0) {
+    rightPanel.appendChild(el('div', { class: 'empty', text: 'No PDF images for this set. Skip.' }));
+  } else {
+    const grid = el('div', { class: 'candidates' });
+    candidates.forEach((c) => {
+      const isUsed = used.has(c.filename) && mapping[don.id] !== c.filename;
+      const isCurrent = mapping[don.id] === c.filename;
+      const cand = el('div', {
+        class: 'candidate' + (isUsed ? ' used' : ''),
+        'data-filename': c.filename,
+        onClick: () => {
+          const fn = c.filename;
+          const stillUsed = usedFilenames().has(fn) && mapping[don.id] !== fn;
+          if (stillUsed) {
+            if (!confirm(`${fn} is already mapped to another DON. Reassign?`)) return;
+            for (const k of Object.keys(mapping)) if (mapping[k] === fn) delete mapping[k];
+          }
+          mapping[don.id] = fn;
+          save();
+          if (idx < dons.length - 1) idx++;
+          render();
+        },
+      });
+      cand.appendChild(el('img', { src: `../data/don_images/${c.filename}`, loading: 'lazy' }));
+      cand.appendChild(el('div', {
+        class: 'label',
+        text: c.filename + (isCurrent ? ' ✓' : ''),
+      }));
+      if (isUsed) cand.appendChild(el('div', { class: 'used-tag', text: 'used' }));
+      grid.appendChild(cand);
+    });
+    rightPanel.appendChild(grid);
+  }
+  stage.appendChild(rightPanel);
+
+  view.appendChild(stage);
+}
+
+function nav(delta) {
+  idx = Math.max(0, Math.min(dons.length - 1, idx + delta));
+  render();
+}
+
+document.getElementById('prev').addEventListener('click', () => nav(-1));
+document.getElementById('next').addEventListener('click', () => nav(1));
+document.getElementById('skip').addEventListener('click', () => {
+  mapping[dons[idx].id] = '__skipped__';
+  save();
+  nav(1);
+});
+document.getElementById('export').addEventListener('click', () => {
+  const clean = {};
+  for (const [k, v] of Object.entries(mapping)) {
+    if (v && v !== '__skipped__') clean[k] = v;
+  }
+  const blob = new Blob([JSON.stringify(clean, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'don_image_mapping.json';
+  a.click();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+  if (e.key === 'ArrowLeft') nav(-1);
+  else if (e.key === 'ArrowRight') nav(1);
+  else if (e.key === 's') { mapping[dons[idx].id] = '__skipped__'; save(); nav(1); }
+  else if (e.key === 'e') document.getElementById('export').click();
+  else if (/^[1-9]$/.test(e.key)) {
+    const n = parseInt(e.key, 10) - 1;
+    const elNode = document.querySelectorAll('.candidate')[n];
+    if (elNode) elNode.click();
+  }
+});
+
+load();
+</script>
+</body>
+</html>
