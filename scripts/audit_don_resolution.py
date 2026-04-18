@@ -3,7 +3,7 @@ Audit the resolution of every DON card image actually served in R2.
 
 Flags any DON served at less than TARGET_MIN_WIDTH px as "low-res". For each
 low-res DON, reports the best upgrade path: PDF curation (if the card's set
-has unmatched PDF images available) or "accept/upscale" if no source exists.
+has unmatched PDF images available) or "no source" otherwise.
 
 Usage:
   python scripts/audit_don_resolution.py
@@ -94,7 +94,7 @@ def main() -> None:
         print(f"{k:<25} {by_status[k]}")
 
     print()
-    print("Stuck (no PDF source, will need alternate source or AI upscale):")
+    print("Stuck (no PDF source, will need alternate source e.g. eBay scans):")
     for r in results:
         if r["status"] == "STUCK_NO_SOURCE":
             print(f"  {r['id']}  {r['set_id']:10}  {r['width']}x{r['height']}  {r['name']}")

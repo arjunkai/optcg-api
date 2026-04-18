@@ -5,7 +5,6 @@ __pycache__/
 data/*
 !data/manual_prices.json
 !data/don_image_mapping.json
-data/bin/
 data/don_resolution_audit.json
 .claude/
 scripts/import*.sql
