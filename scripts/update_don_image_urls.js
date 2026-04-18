@@ -32,7 +32,7 @@ const API_BASE = 'https://optcg-api.arjunbansal-ai.workers.dev';
 // when the R2 contents change meaningfully. The ?v=N query is passed
 // through by src/images.js as a no-op server-side, but it changes the
 // cache key everywhere upstream.
-const IMAGE_VERSION = 2;
+const IMAGE_VERSION = 3;
 
 const SQL = `UPDATE cards SET image_url = '${API_BASE}/images/' || id || '?v=${IMAGE_VERSION}' WHERE category = 'Don';`;
 
