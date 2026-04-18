@@ -7,11 +7,14 @@ export function registerDocsRoutes(app) {
         title: 'OPTCG API',
         version: '1.0.0',
         description:
-          '**Free REST API for One Piece TCG card data.**\n\n' +
-          'Cards, sets, filters, and image proxying — built for ' +
+          '**Free REST API for One Piece TCG card data + TCGPlayer prices.**\n\n' +
+          'Cards, sets, DON cards, prices, filters, and image proxying — built for ' +
           '[OPBindr](https://opbindr.com) and the OPTCG community.\n\n' +
-          '- Pagination follows the [Pokemon TCG API](https://pokemontcg.io/) convention (`page` / `pageSize`)\n' +
-          '- All card IDs are uppercase (e.g. `OP01-001`, `ST01-001`)\n' +
+          '- **4,566 cards + 195 DON cards**, ~99.6% priced weekly\n' +
+          '- Prices aggregated from TCGPlayer, dotgg.gg, and web search fallback — see `price_source` on each card for provenance\n' +
+          '- Pagination follows the [Pokemon TCG API](https://pokemontcg.io/) convention (`page` / `page_size`)\n' +
+          '- Set/base card IDs are uppercase (`OP01-001`, `ST01-001`); variant suffixes are lowercase (`OP05-119_p8`, `OP05-119_r1`)\n' +
+          '- DON cards use synthetic IDs `DON-001` through `DON-195` with `category=Don`\n' +
           '- Image proxy adds CORS headers so you can use card art directly in the browser',
       },
       servers: [{ url: '/' }],
@@ -21,6 +24,41 @@ export function registerDocsRoutes(app) {
         { name: 'Cards', description: 'Search, filter, and retrieve individual cards.' },
         { name: 'Images', description: 'Proxy card artwork from the official site.' },
       ],
+      components: {
+        schemas: {
+          Card: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', example: 'OP01-001' },
+              base_id: { type: 'string', nullable: true, description: 'For parallels, the base card id' },
+              parallel: { type: 'boolean' },
+              variant_type: { type: 'string', nullable: true, enum: ['alt_art', 'reprint', 'manga', 'serial', null] },
+              name: { type: 'string' },
+              rarity: { type: 'string' },
+              category: { type: 'string', enum: ['Leader', 'Character', 'Event', 'Stage', 'Don'] },
+              finish: { type: 'string', nullable: true },
+              image_url: { type: 'string' },
+              colors: { type: 'array', items: { type: 'string' }, nullable: true },
+              cost: { type: 'integer', nullable: true },
+              power: { type: 'integer', nullable: true },
+              counter: { type: 'integer', nullable: true },
+              attributes: { type: 'array', items: { type: 'string' }, nullable: true },
+              types: { type: 'array', items: { type: 'string' }, nullable: true },
+              effect: { type: 'string', nullable: true },
+              trigger: { type: 'string', nullable: true },
+              price: { type: 'number', nullable: true, description: 'Market price in USD' },
+              tcg_ids: { type: 'array', items: { type: 'integer' }, nullable: true, description: 'TCGPlayer product IDs' },
+              price_updated_at: { type: 'integer', nullable: true, description: 'Unix timestamp of last refresh' },
+              price_source: {
+                type: 'string',
+                nullable: true,
+                enum: ['tcgplayer', 'dotgg', 'manual', 'web_tcgplayer', 'web_cardmarket', 'web_pricecharting', 'web_ebay', 'web_tcgking', 'web_collectr', 'web_gamenerdz', 'web_cardkingdom', null],
+                description: 'Where this price came from',
+              },
+            },
+          },
+        },
+      },
       paths: {
         '/': {
           get: {
@@ -51,9 +89,24 @@ export function registerDocsRoutes(app) {
           get: {
             tags: ['Cards'],
             summary: 'Get a Single Card',
-            description: 'Returns full card data plus every set the card appears in.',
-            parameters: [{ name: 'card_id', in: 'path', required: true, schema: { type: 'string' } }],
-            responses: { 200: { description: 'Card with sets' }, 404: { description: 'Card not found' } },
+            description: 'Returns full card data plus every set the card appears in. Supports variant suffixes like `_p8` or `_r1` (lowercase).',
+            parameters: [{ name: 'card_id', in: 'path', required: true, schema: { type: 'string' }, example: 'OP05-119_p8' }],
+            responses: {
+              200: {
+                description: 'Card with sets',
+                content: {
+                  'application/json': {
+                    schema: {
+                      allOf: [
+                        { $ref: '#/components/schemas/Card' },
+                        { type: 'object', properties: { sets: { type: 'array', items: { type: 'object' } } } },
+                      ],
+                    },
+                  },
+                },
+              },
+              404: { description: 'Card not found' },
+            },
           },
         },
         '/cards': {
@@ -80,7 +133,25 @@ export function registerDocsRoutes(app) {
               { name: 'page', in: 'query', schema: { type: 'integer', default: 1 }, description: 'Page number' },
               { name: 'page_size', in: 'query', schema: { type: 'integer', default: 50 }, description: 'Results per page (max 500)' },
             ],
-            responses: { 200: { description: 'Paginated card results' } },
+            responses: {
+              200: {
+                description: 'Paginated card results',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        count: { type: 'integer' },
+                        totalCount: { type: 'integer' },
+                        page: { type: 'integer' },
+                        pageSize: { type: 'integer' },
+                        data: { type: 'array', items: { $ref: '#/components/schemas/Card' } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
         '/images/{card_id}': {
