@@ -23,6 +23,7 @@ app.get('/', (c) => {
       'GET /sets/{id}/cards',
       'GET /cards',
       'GET /cards/{id}',
+      'GET /cards/{id}/price-history',
       'GET /images/{card_id}',
     ],
   });

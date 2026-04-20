@@ -32,6 +32,14 @@ for (const [cardId, entry] of Object.entries(prices)) {
   lines.push(
     `UPDATE cards SET price=${escSql(entry.price)}, tcg_ids=${escSql(JSON.stringify(entry.tcg_ids))}, price_updated_at=${escSql(entry.price_updated_at)}, price_source='tcgplayer' WHERE id=${escSql(cardId)} AND (price_source IS NULL OR price_source != 'manual');`
   );
+  // Snapshot into price history on every refresh so we can render charts.
+  // INSERT OR IGNORE handles the rare case where two imports run in the same
+  // second (the PK is (card_id, captured_at)).
+  if (entry.price != null && entry.price > 0) {
+    lines.push(
+      `INSERT OR IGNORE INTO card_price_history (card_id, price, captured_at) VALUES (${escSql(cardId)}, ${escSql(entry.price)}, ${escSql(entry.price_updated_at)});`
+    );
+  }
 }
 
 console.log(`Total UPDATEs: ${lines.length}`);

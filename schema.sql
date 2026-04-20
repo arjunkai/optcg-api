@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS card_price_history;
 DROP TABLE IF EXISTS card_sets;
 DROP TABLE IF EXISTS cards;
 DROP TABLE IF EXISTS sets;
@@ -42,6 +43,13 @@ CREATE TABLE card_sets (
   set_id TEXT NOT NULL REFERENCES sets(id),
   pack_id TEXT,
   PRIMARY KEY (card_id, set_id)
+);
+
+CREATE TABLE card_price_history (
+  card_id TEXT NOT NULL,
+  price REAL NOT NULL,
+  captured_at INTEGER NOT NULL,
+  PRIMARY KEY (card_id, captured_at)
 );
 
 CREATE INDEX idx_cards_category ON cards(category);

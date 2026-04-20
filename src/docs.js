@@ -109,6 +109,45 @@ export function registerDocsRoutes(app) {
             },
           },
         },
+        '/cards/{card_id}/price-history': {
+          get: {
+            tags: ['Cards'],
+            summary: 'Get Card Price History',
+            description: 'Returns historical TCGPlayer market prices for a card, captured on each weekly refresh. `range` caps the window: `1m`, `3m`, `6m`, `1y` (default), or `all`.',
+            parameters: [
+              { name: 'card_id', in: 'path', required: true, schema: { type: 'string' }, example: 'OP05-119' },
+              { name: 'range', in: 'query', schema: { type: 'string', enum: ['1m', '3m', '6m', '1y', 'all'], default: '1y' } },
+            ],
+            responses: {
+              200: {
+                description: 'Price history points in chronological order',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        card_id: { type: 'string' },
+                        range: { type: 'string' },
+                        current_price: { type: 'number', nullable: true },
+                        current_updated_at: { type: 'integer', nullable: true },
+                        points: {
+                          type: 'array',
+                          items: {
+                            type: 'object',
+                            properties: {
+                              price: { type: 'number' },
+                              t: { type: 'integer', description: 'Unix timestamp in milliseconds' },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
         '/cards': {
           get: {
             tags: ['Cards'],

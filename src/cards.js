@@ -1,6 +1,44 @@
 import { parseCard, parseCards } from './db.js';
 
 export function registerCardRoutes(app) {
+  // Price history for a single card. Range caps the window in seconds so we
+  // don't return the entire history by default. Rows come from the
+  // `card_price_history` table, populated on each weekly price refresh.
+  app.get('/cards/:card_id/price-history', async (c) => {
+    const raw = c.req.param('card_id');
+    const m = raw.match(/^([^_]+)(_[a-zA-Z]\d+)?$/);
+    const cardId = m ? m[1].toUpperCase() + (m[2] ? m[2].toLowerCase() : '') : raw.toUpperCase();
+
+    const RANGES = { '1m': 30 * 86400, '3m': 90 * 86400, '6m': 180 * 86400, '1y': 365 * 86400, 'all': null };
+    const range = RANGES[c.req.query('range')] !== undefined ? c.req.query('range') : '1y';
+    const window = RANGES[range];
+
+    let sql = 'SELECT price, captured_at FROM card_price_history WHERE card_id = ?';
+    const params = [cardId];
+    if (window !== null) {
+      const since = Math.floor(Date.now() / 1000) - window;
+      sql += ' AND captured_at >= ?';
+      params.push(since);
+    }
+    sql += ' ORDER BY captured_at ASC';
+
+    const { results } = await c.env.DB.prepare(sql).bind(...params).all();
+
+    // Current price lookup so the chart can anchor its "now" line without a
+    // second request. Null if the card has no price or doesn't exist.
+    const current = await c.env.DB.prepare(
+      'SELECT price, price_updated_at FROM cards WHERE id = ?'
+    ).bind(cardId).first();
+
+    return c.json({
+      card_id: cardId,
+      range,
+      current_price: current?.price ?? null,
+      current_updated_at: current?.price_updated_at ?? null,
+      points: results.map(r => ({ price: r.price, t: r.captured_at * 1000 })),
+    });
+  });
+
   app.get('/cards/:card_id', async (c) => {
     // Uppercase the set prefix (OP05-119) but preserve the variant suffix
     // (_p8, _r1) since D1 stores those lowercase. Match `^[base-id](_[pr]\d+)?$`.
