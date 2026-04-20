@@ -61,6 +61,11 @@ Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPla
 
 **Important:** `scripts/build_don_cards.py` writes the API proxy URL into `image_url`. Don't revert it to `tcgplayer-cdn.tcgplayer.com` or the weekly refresh will break the proxy behavior.
 
+## Price history
+- `card_price_history` table captures one row per card per weekly price refresh. Populated by `scripts/import-prices-d1.js` alongside the existing cards.price UPDATE. Seeded once in `migrations/005_price_history.sql` from `cards.price` at deploy time.
+- Served to OPBindr via `GET /cards/{id}/price-history?range=…` (see `src/cards.js`). Schema docs in `src/docs.js`.
+- Backfill was attempted via `scripts/backfill_price_history.js` against TCGPlayer's `infinite-api.tcgplayer.com/price/history/{tcg_id}/detailed` endpoint. Endpoint works and returns clean JSON, but rate-limits at AWS ELB after ~10 requests per IP. Script is checked in for future use (see its header) but not currently run. Charts populate forward from the weekly snapshot.
+
 ## Pricing
 - `price` REAL, `foil_price` REAL (unused), `delta_price`/`delta_7d_price` (future), `tcg_ids` TEXT (JSON array), `price_updated_at` INTEGER, `price_source` TEXT
 - Priority order: **manual > tcgplayer > dotgg**. Manual pins via `data/manual_prices.json`, overrides everything, never clobbered. TCGPlayer refreshes weekly and skips manual rows. dotgg fills whatever TCGPlayer/manual leaves NULL.
