@@ -26,11 +26,27 @@ function escSql(val) {
 
 const prices = JSON.parse(readFileSync('data/card_prices_all.json', 'utf-8'));
 
+// build_all_prices.py records the match method per card. We flatten those
+// onto price_source values the UI can trust:
+//   dotgg+tcgplayer  -> 'tcgplayer' (high confidence — dotgg mapped card to
+//                        a specific TCGPlayer product and we have its price)
+//   dotgg-only       -> 'dotgg' (dotgg mapped the card but TCGPlayer didn't
+//                        have the listing; using dotgg's own cached price)
+//   positional-*     -> 'positional' (dotgg doesn't know this card, so we
+//                        guessed by variant_type + iteration order. Low
+//                        confidence; OPBindr flags these as estimates.)
+function priceSourceFromMatch(method) {
+  if (method === 'dotgg-only') return 'dotgg';
+  if (method && method.startsWith('positional')) return 'positional';
+  return 'tcgplayer';
+}
+
 const lines = [];
 for (const [cardId, entry] of Object.entries(prices)) {
   // Skip cards the user has manually pinned — the manual source always wins.
+  const priceSource = priceSourceFromMatch(entry.match_method);
   lines.push(
-    `UPDATE cards SET price=${escSql(entry.price)}, tcg_ids=${escSql(JSON.stringify(entry.tcg_ids))}, price_updated_at=${escSql(entry.price_updated_at)}, price_source='tcgplayer' WHERE id=${escSql(cardId)} AND (price_source IS NULL OR price_source != 'manual');`
+    `UPDATE cards SET price=${escSql(entry.price)}, tcg_ids=${escSql(JSON.stringify(entry.tcg_ids))}, price_updated_at=${escSql(entry.price_updated_at)}, price_source=${escSql(priceSource)} WHERE id=${escSql(cardId)} AND (price_source IS NULL OR price_source != 'manual');`
   );
   // Snapshot into price history on every refresh so we can render charts.
   // INSERT OR IGNORE handles the rare case where two imports run in the same
