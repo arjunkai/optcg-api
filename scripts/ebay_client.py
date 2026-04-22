@@ -19,7 +19,7 @@ from typing import Iterable
 
 DEFAULT_BLOCKLIST: tuple[str, ...] = (
     "proxy",
-    "custom",
+    "custom art",
     "fan made",
     "fan-made",
     "replica",
@@ -27,6 +27,7 @@ DEFAULT_BLOCKLIST: tuple[str, ...] = (
     "not authentic",
     "art only",
     "fanart",
+    "fan art",
 )
 
 

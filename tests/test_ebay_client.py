@@ -19,6 +19,18 @@ def test_apply_title_filters_blocklist_drops_fake_markers():
         "Monkey D. Luffy OP01-001 replica",
         "Monkey D. Luffy OP01-001 NOT authentic",
         "Monkey D. Luffy OP01-001 FANART",
+        "Monkey D. Luffy OP01-001 with custom sleeves",
+    )
+    result = apply_title_filters(items)
+    assert len(result) == 2
+    assert result[0]["title"] == "Monkey D. Luffy OP01-001"
+    assert result[1]["title"] == "Monkey D. Luffy OP01-001 with custom sleeves"
+
+
+def test_apply_title_filters_blocklist_catches_fan_art_with_space():
+    items = _items(
+        "Custom fan art OP01-001",
+        "Monkey D. Luffy OP01-001",
     )
     result = apply_title_filters(items)
     assert len(result) == 1
