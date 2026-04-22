@@ -174,3 +174,39 @@ class EbayClient:
     def _write_cache(self, data: dict) -> None:
         self.token_path.parent.mkdir(parents=True, exist_ok=True)
         self.token_path.write_text(json.dumps(data))
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 50,
+        category_ids: str | None = None,
+        max_retries: int = 4,
+    ) -> list[dict]:
+        """Search the Browse API. Returns a list of item_summary dicts.
+
+        Retries on 429 with exponential backoff (1s, 2s, 4s, 8s). Raises
+        RuntimeError if eBay keeps rate-limiting us past `max_retries`.
+        """
+        token = self.get_token()
+        params = {"q": query, "limit": str(limit)}
+        if category_ids:
+            params["category_ids"] = category_ids
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+        }
+
+        for attempt in range(max_retries):
+            resp = httpx.get(
+                BROWSE_SEARCH_URL, params=params, headers=headers, timeout=30
+            )
+            if resp.status_code == 200:
+                return resp.json().get("itemSummaries", []) or []
+            if resp.status_code == 429:
+                time.sleep(2 ** attempt)
+                continue
+            raise RuntimeError(
+                f"eBay search failed: {resp.status_code} {resp.text[:300]}"
+            )
+        raise RuntimeError(f"eBay search rate limited after {max_retries} attempts")

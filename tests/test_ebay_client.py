@@ -203,3 +203,74 @@ def test_get_token_raises_on_auth_failure(token_path):
     client = EbayClient(app_id="bad", cert_id="bad", token_path=token_path)
     with pytest.raises(RuntimeError, match="eBay OAuth failed"):
         client.get_token()
+
+
+from scripts.ebay_client import BROWSE_SEARCH_URL
+
+
+@respx.mock
+def test_search_returns_item_summaries(token_path):
+    token_path.write_text(json.dumps({
+        "access_token": "tok",
+        "expires_at": time.time() + 3600,
+    }))
+    respx.get(BROWSE_SEARCH_URL).mock(
+        return_value=httpx.Response(200, json={
+            "itemSummaries": [
+                {"title": "OP01-001 Luffy", "price": {"value": "10.00", "currency": "USD"}},
+                {"title": "OP01-001 Luffy alt", "price": {"value": "12.00", "currency": "USD"}},
+            ],
+            "total": 2,
+        })
+    )
+    client = EbayClient(app_id="a", cert_id="c", token_path=token_path)
+    items = client.search("OP01-001 Luffy", limit=50)
+    assert len(items) == 2
+    assert items[0]["title"] == "OP01-001 Luffy"
+
+
+@respx.mock
+def test_search_returns_empty_list_on_no_match(token_path):
+    token_path.write_text(json.dumps({
+        "access_token": "tok",
+        "expires_at": time.time() + 3600,
+    }))
+    respx.get(BROWSE_SEARCH_URL).mock(
+        return_value=httpx.Response(200, json={"total": 0})
+    )
+    client = EbayClient(app_id="a", cert_id="c", token_path=token_path)
+    assert client.search("nonexistent card", limit=50) == []
+
+
+@respx.mock
+def test_search_retries_on_429_then_succeeds(token_path, monkeypatch):
+    token_path.write_text(json.dumps({
+        "access_token": "tok",
+        "expires_at": time.time() + 3600,
+    }))
+    sleep_calls = []
+    monkeypatch.setattr("scripts.ebay_client.time.sleep", lambda s: sleep_calls.append(s))
+    route = respx.get(BROWSE_SEARCH_URL).mock(side_effect=[
+        httpx.Response(429),
+        httpx.Response(429),
+        httpx.Response(200, json={"itemSummaries": [{"title": "ok", "price": {"value": "5.00", "currency": "USD"}}]}),
+    ])
+    client = EbayClient(app_id="a", cert_id="c", token_path=token_path)
+    items = client.search("q", limit=50)
+    assert len(items) == 1
+    assert route.call_count == 3
+    # Exponential backoff: 1s, then 2s.
+    assert sleep_calls == [1, 2]
+
+
+@respx.mock
+def test_search_gives_up_after_max_retries(token_path, monkeypatch):
+    token_path.write_text(json.dumps({
+        "access_token": "tok",
+        "expires_at": time.time() + 3600,
+    }))
+    monkeypatch.setattr("scripts.ebay_client.time.sleep", lambda s: None)
+    respx.get(BROWSE_SEARCH_URL).mock(return_value=httpx.Response(429))
+    client = EbayClient(app_id="a", cert_id="c", token_path=token_path)
+    with pytest.raises(RuntimeError, match="rate limited"):
+        client.search("q", limit=50)
