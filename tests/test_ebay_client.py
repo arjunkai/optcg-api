@@ -1,5 +1,6 @@
 from scripts.ebay_client import apply_title_filters
 from scripts.ebay_client import trimmed_median
+from scripts.ebay_client import consensus_price
 
 
 def _items(*titles):
@@ -87,3 +88,47 @@ def test_trimmed_median_rejects_outliers():
     prices = [1.0, 100.0, 105.0, 110.0, 115.0, 120.0, 125.0, 130.0, 135.0, 9999.0]
     # Trim 2 per side → median of [105,110,115,120,125,130] = 117.5
     assert trimmed_median(prices) == 117.5
+
+
+def _priced(*prices):
+    # Shape matches eBay Browse API item_summary shape (we only care about
+    # the `price.value` and `title` fields).
+    return [
+        {"title": f"Card {i}", "price": {"value": str(p), "currency": "USD"}}
+        for i, p in enumerate(prices)
+    ]
+
+
+def test_consensus_price_below_minimum_returns_none():
+    items = _priced(10.0, 12.0)
+    price, sample_size = consensus_price(items, min_count=3)
+    assert price is None
+    assert sample_size == 2
+
+
+def test_consensus_price_meets_minimum_returns_trimmed_median():
+    items = _priced(10.0, 12.0, 14.0)
+    price, sample_size = consensus_price(items, min_count=3)
+    assert price == 12.0
+    assert sample_size == 3
+
+
+def test_consensus_price_skips_items_missing_price():
+    items = _priced(10.0, 12.0, 14.0)
+    items.append({"title": "No price field"})
+    items.append({"title": "Empty price", "price": {"value": "", "currency": "USD"}})
+    price, sample_size = consensus_price(items, min_count=3)
+    assert price == 12.0
+    assert sample_size == 3
+
+
+def test_consensus_price_currency_filter_drops_non_usd():
+    items = [
+        {"title": "A", "price": {"value": "10.00", "currency": "USD"}},
+        {"title": "B", "price": {"value": "12.00", "currency": "USD"}},
+        {"title": "C", "price": {"value": "14.00", "currency": "USD"}},
+        {"title": "D", "price": {"value": "100.00", "currency": "JPY"}},
+    ]
+    price, sample_size = consensus_price(items, min_count=3)
+    assert price == 12.0
+    assert sample_size == 3

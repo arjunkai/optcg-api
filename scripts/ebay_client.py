@@ -71,3 +71,35 @@ def trimmed_median(prices: list[float], trim_pct: float = 0.20) -> float | None:
     trim = int(n * trim_pct)
     trimmed = sorted_prices[trim : n - trim] if trim > 0 else sorted_prices
     return float(median(trimmed))
+
+
+def consensus_price(
+    items: list[dict],
+    *,
+    min_count: int = 3,
+    currency: str = "USD",
+) -> tuple[float | None, int]:
+    """Extract USD prices from eBay item_summary listings, trim outliers,
+    and return (median, sample_size). Returns (None, sample_size) when
+    fewer than `min_count` usable listings are present.
+
+    Expects eBay Browse API shape: items[i]["price"] = {"value": "12.34",
+    "currency": "USD"}. Items missing a price or in a different currency
+    are skipped, not counted toward min_count.
+    """
+    prices: list[float] = []
+    for item in items:
+        price = item.get("price") or {}
+        if price.get("currency") != currency:
+            continue
+        raw = price.get("value")
+        if not raw:
+            continue
+        try:
+            prices.append(float(raw))
+        except (TypeError, ValueError):
+            continue
+
+    if len(prices) < min_count:
+        return None, len(prices)
+    return trimmed_median(prices), len(prices)
