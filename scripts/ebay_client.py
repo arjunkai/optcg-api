@@ -14,8 +14,21 @@ so every consumer gets the same filtering behavior.
 
 from __future__ import annotations
 
+import base64
+import json
+import os
+import time
+from pathlib import Path
 from statistics import median
 from typing import Iterable
+
+import httpx
+
+
+TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
+BROWSE_SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+SCOPE = "https://api.ebay.com/oauth/api_scope"
+DEFAULT_TOKEN_PATH = Path("data/.ebay_token.json")
 
 
 DEFAULT_BLOCKLIST: tuple[str, ...] = (
@@ -103,3 +116,61 @@ def consensus_price(
     if len(prices) < min_count:
         return None, len(prices)
     return trimmed_median(prices), len(prices)
+
+
+class EbayClient:
+    """eBay Browse API client with cached client-credentials OAuth.
+
+    The access token lives for ~2h; we cache it to disk so repeated script
+    runs (weekly pipeline, local dry-runs) don't re-auth unnecessarily.
+    """
+
+    def __init__(
+        self,
+        *,
+        app_id: str | None = None,
+        cert_id: str | None = None,
+        token_path: Path | None = None,
+    ) -> None:
+        self.app_id = app_id or os.environ.get("EBAY_APP_ID")
+        self.cert_id = cert_id or os.environ.get("EBAY_CERT_ID")
+        if not self.app_id or not self.cert_id:
+            raise RuntimeError(
+                "EBAY_APP_ID and EBAY_CERT_ID must be set as env vars "
+                "or passed to EbayClient()"
+            )
+        self.token_path = Path(token_path) if token_path else DEFAULT_TOKEN_PATH
+
+    def get_token(self) -> str:
+        cached = self._read_cache()
+        if cached and cached.get("expires_at", 0) > time.time() + 60:
+            return cached["access_token"]
+
+        auth = base64.b64encode(f"{self.app_id}:{self.cert_id}".encode()).decode()
+        resp = httpx.post(
+            TOKEN_URL,
+            headers={
+                "Authorization": f"Basic {auth}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            data={"grant_type": "client_credentials", "scope": SCOPE},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"eBay OAuth failed: {resp.status_code} {resp.text[:300]}"
+            )
+        payload = resp.json()
+        expires_at = time.time() + int(payload.get("expires_in", 7200))
+        self._write_cache({"access_token": payload["access_token"], "expires_at": expires_at})
+        return payload["access_token"]
+
+    def _read_cache(self) -> dict | None:
+        try:
+            return json.loads(self.token_path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            return None
+
+    def _write_cache(self, data: dict) -> None:
+        self.token_path.parent.mkdir(parents=True, exist_ok=True)
+        self.token_path.write_text(json.dumps(data))

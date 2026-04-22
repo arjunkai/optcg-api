@@ -13,3 +13,4 @@ scripts/.tmp/
 node_modules/
 .wrangler/
 docs/superpowers/
+data/.ebay_token.json
