@@ -3,3 +3,5 @@ uvicorn[standard]
 psycopg2-binary
 python-dotenv
 httpx
+pytest
+respx
