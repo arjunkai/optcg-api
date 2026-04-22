@@ -14,6 +14,7 @@ so every consumer gets the same filtering behavior.
 
 from __future__ import annotations
 
+from statistics import median
 from typing import Iterable
 
 
@@ -57,3 +58,16 @@ def apply_title_filters(
             continue
         out.append(item)
     return out
+
+
+def trimmed_median(prices: list[float], trim_pct: float = 0.20) -> float | None:
+    """Drop the top and bottom `trim_pct` of `prices`, return the median of
+    what remains. Returns None for an empty input. For inputs of length 1 or
+    2, returns the regular median (trim count would be zero)."""
+    if not prices:
+        return None
+    sorted_prices = sorted(prices)
+    n = len(sorted_prices)
+    trim = int(n * trim_pct)
+    trimmed = sorted_prices[trim : n - trim] if trim > 0 else sorted_prices
+    return float(median(trimmed))
