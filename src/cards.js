@@ -16,10 +16,19 @@ export function registerCardRoutes(app) {
   // id 'ALL'.
   app.get('/cards/all', async (c) => {
     const cache = caches.default;
-    const cacheKey = new Request(c.req.url, { method: 'GET' });
+    // Keep the cache key normalized to the bare URL so ?refresh=1 purges
+    // the SAME entry the cached hit would use.
+    const baseUrl = new URL(c.req.url);
+    const refresh = baseUrl.searchParams.get('refresh') === '1';
+    baseUrl.searchParams.delete('refresh');
+    const cacheKey = new Request(baseUrl.toString(), { method: 'GET' });
 
-    const hit = await cache.match(cacheKey);
-    if (hit) return hit;
+    if (refresh) {
+      await cache.delete(cacheKey);
+    } else {
+      const hit = await cache.match(cacheKey);
+      if (hit) return hit;
+    }
 
     const { results } = await c.env.DB.prepare(
       'SELECT * FROM cards ORDER BY id ASC'

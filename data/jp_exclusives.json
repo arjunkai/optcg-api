@@ -3,14 +3,16 @@
 
   "_price_note": "The `price` field in each entry is a conservative market estimate used as a floor so the UI never shows a null. Run `python -m scripts.price_jp_exclusives` with eBay creds to refresh with real consensus medians (stamps price_source='ebay_jp', overrides manual_jp). If eBay can't find consensus for a rare card, the manual_jp floor stays. Prices last reviewed 2026-04-23.",
 
+  "_image_note": "Each `image_url` points at the OPTCG API proxy (https://optcg-api.arjunbansal-ai.workers.dev/images/{id}) which serves from R2 bucket optcg-images/cards/{id}.png. Images sourced from real eBay seller photos — the `note` field describes the specific variant/stamp shown in the uploaded scan, so the image stays in sync with how the card is labeled. If you swap an image, update the note to match.",
+
   "P-001_jp1": {
     "base_id": "P-001",
     "variant_type": "Alternate Art",
     "finish": "textured",
     "rarity": "Special",
-    "image_url": null,
-    "price": 180,
-    "note": "2024 One Piece Championship Prize (JP)"
+    "image_url": "https://optcg-api.arjunbansal-ai.workers.dev/images/P-001_jp1",
+    "price": 75,
+    "note": "2022 One Piece Championship Set Promo (JP)"
   },
 
   "P-003_jp1": {
@@ -18,9 +20,9 @@
     "variant_type": "Alternate Art",
     "finish": "textured",
     "rarity": "Special",
-    "image_url": null,
-    "price": 45,
-    "note": "2024 One Piece Championship Prize (JP)"
+    "image_url": "https://optcg-api.arjunbansal-ai.workers.dev/images/P-003_jp1",
+    "price": 10,
+    "note": "2022 One Piece Championship Set Promo (JP)"
   },
 
   "ST03-008_jp1": {
@@ -28,8 +30,8 @@
     "variant_type": "Alternate Art",
     "finish": "textured",
     "rarity": "Special",
-    "image_url": null,
-    "price": 100,
-    "note": "One Piece Championship alt art (JP)"
+    "image_url": "https://optcg-api.arjunbansal-ai.workers.dev/images/ST03-008_jp1",
+    "price": 25,
+    "note": "2022 One Piece Championship Set Promo (JP)"
   }
 }
