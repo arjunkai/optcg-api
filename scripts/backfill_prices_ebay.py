@@ -8,9 +8,9 @@ price IS NULL. Every write sets price_source='ebay' so it's auditable and
 fully rollback-able.
 
 Safety model:
-  - Read-only probe: python scripts/backfill_prices_ebay.py --dry-run
-  - Local write:     python scripts/backfill_prices_ebay.py --local
-  - Remote write:    python scripts/backfill_prices_ebay.py
+  - Read-only probe: python -m scripts.backfill_prices_ebay --dry-run
+  - Local write:     python -m scripts.backfill_prices_ebay --local
+  - Remote write:    python -m scripts.backfill_prices_ebay
   - Full rollback:   wrangler d1 execute optcg-cards --remote \
                        --command "UPDATE cards SET price=NULL, tcg_ids=NULL, \
                                   price_updated_at=NULL, price_source=NULL \
@@ -19,8 +19,8 @@ Safety model:
 Requires env vars EBAY_APP_ID and EBAY_CERT_ID (set as GitHub secrets for
 the weekly workflow; set in your shell for local runs).
 
-Usage:
-  python scripts/backfill_prices_ebay.py [--dry-run] [--local] [--limit N]
+Run as a module from the repo root so `scripts.ebay_client` resolves:
+  python -m scripts.backfill_prices_ebay [--dry-run] [--local] [--limit N]
 """
 
 from __future__ import annotations

@@ -110,7 +110,7 @@ jobs:
           EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: python scripts/backfill_prices_ebay.py
+        run: python -m scripts.backfill_prices_ebay
 
       # Last-resort: web search for anything still unpriced. Uses Firecrawl
       # search (~20 credits/week — well under the free tier). Non-blocking so
