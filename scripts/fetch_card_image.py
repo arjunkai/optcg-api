@@ -23,10 +23,21 @@ How it picks the best photo:
   6. Save as PNG, upload to R2 at cards/{card_id}.png, purge /cards/all.
 
 Usage (from optcg-api repo root):
-  python -m scripts.fetch_card_image P-001_jp1              # one card
+  python -m scripts.fetch_card_image P-001_jp1              # one JP exclusive
+  python -m scripts.fetch_card_image OP01-001               # ANY card — looks up
+                                                            # name from D1, then
+                                                            # searches eBay
   python -m scripts.fetch_card_image P-001_jp1 --dry-run    # preview only
   python -m scripts.fetch_card_image --all                  # every jp_exclusives entry
   python -m scripts.fetch_card_image P-001_jp1 --top 15     # consider more candidates
+
+Lookup priority when a card_id is passed:
+  1. data/jp_exclusives.json — if present, uses its note / image_search_query
+     for a tight variant-specific search.
+  2. API /cards/{id}         — otherwise, pulls the card's name from D1 and
+     builds a generic "{name} {id} one piece TCG" query. Good enough for
+     most alt arts / promos where the card ID is unique enough.
+  3. Not found               — exits non-zero.
 
 Environment:
   EBAY_APP_ID, EBAY_CERT_ID  (same as price_jp_exclusives.py)
@@ -59,6 +70,7 @@ JSON_PATH = Path("data/jp_exclusives.json")
 R2_BUCKET = "optcg-images"
 R2_KEY_PREFIX = "cards/"
 PROXY_URL = "https://optcg-api.arjunbansal-ai.workers.dev"
+OFFICIAL_IMG = "https://en.onepiece-cardgame.com/images/cardlist/card/{id}.png"
 WRANGLER_CMD = ["npx", "wrangler"]
 
 # Title terms that signal a photo we can't use: graded card inside a slab,
@@ -71,7 +83,10 @@ UNUSABLE_TERMS = (
 )
 
 
-def load_entries(card_ids: list[str] | None) -> list[dict]:
+def load_jp_entries(card_ids: list[str] | None) -> list[dict]:
+    """Load entries from data/jp_exclusives.json, with any extra fields
+    (note, image_search_query) that tune the search for JP-exclusive
+    Championship variants."""
     blob = json.loads(JSON_PATH.read_text(encoding="utf-8"))
     out = []
     for key, val in blob.items():
@@ -79,18 +94,84 @@ def load_entries(card_ids: list[str] | None) -> list[dict]:
             continue
         if card_ids and key not in card_ids:
             continue
-        out.append({"id": key, **val})
+        out.append({"id": key, **val, "_source": "jp_exclusives.json"})
     return out
 
 
+def load_card_from_api(card_id: str) -> dict | None:
+    """Fetch a card row from the live API (D1-backed) so the script works
+    for any card, not just ones in jp_exclusives.json. Returns a dict
+    matching the same shape used by load_jp_entries so the rest of the
+    pipeline is source-agnostic."""
+    url = f"{PROXY_URL}/cards/{card_id}"
+    try:
+        resp = httpx.get(url, timeout=10)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+    except httpx.HTTPError:
+        return None
+    # Mirror the jp_exclusives.json shape so build_query and the rest of
+    # the pipeline don't need to branch on source.
+    return {
+        "id": data.get("id", card_id),
+        "base_id": data.get("base_id") or data.get("id", card_id).split("_")[0],
+        "name": data.get("name"),
+        "note": None,
+        "_source": "api/D1",
+    }
+
+
 def build_query(entry: dict) -> str:
-    """Mirror price_jp_exclusives.build_query so image search matches
-    pricing search — same variant gets looked up both places."""
+    """Build an eBay search query for this card.
+
+    Priority:
+      1. entry["image_search_query"]  — explicit override (JP exclusives use
+         this to lock onto a specific stamp variant).
+      2. entry["note"]               — descriptive text from jp_exclusives.json
+         combined with the card ID ("P-001 2022 Championship Set Promo").
+      3. DON cards                    — use the distinctive character/variant
+         name since sellers don't list synthetic "DON-NNN" IDs. Query looks
+         like "One Piece DON card Green Compass".
+      4. fallback                    — card name + card ID ("Monkey D Luffy
+         P-001 one piece TCG"), used when the entry came from D1 and has no
+         note field."""
     if entry.get("image_search_query"):
         return entry["image_search_query"]
+    card_id = entry["id"].split("_")[0]
     note = (entry.get("note") or "").replace("(JP)", "").replace("(JPN)", "").strip()
-    # Include the card ID so we don't drift to a different printing.
-    return f"{entry['id'].split('_')[0]} {note}".strip()
+    if note:
+        return f"{card_id} {note}".strip()
+    name_raw = (entry.get("name") or "").replace(".", " ").replace('"', "").strip()
+    if card_id.startswith("DON-"):
+        # "DON!! Card // Green Compass" -> "Green Compass"
+        distinct = name_raw.split("//")[-1].strip() if "//" in name_raw else name_raw
+        # Strip "DON!! Card" prefix in case the split didn't catch it.
+        distinct = distinct.replace("DON!! Card", "").strip()
+        return f"One Piece DON card {distinct}".strip()
+    return f"{name_raw} {card_id} one piece TCG".strip()
+
+
+def compute_required_match(entry: dict) -> str:
+    """Return the substring that must appear in each eBay listing title for
+    the listing to count as a match for this card.
+
+    For ordinary cards this is just the card ID ("P-001") — unambiguous and
+    protects against lookalike IDs bleeding into results.
+
+    For DON cards the synthetic ID ("DON-001") never appears in listings, so
+    instead we require the distinctive character/variant part of the name
+    ("Green Compass") to be in the title. This keeps us on the right DON
+    across the hundreds of DON printings."""
+    cid = entry["id"]
+    base_id = cid.split("_")[0]
+    if base_id.startswith("DON-"):
+        name = entry.get("name") or ""
+        # "DON!! Card // Green Compass" -> "green compass"
+        distinct = name.split("//")[-1].strip() if "//" in name else name
+        distinct = distinct.replace("DON!! Card", "").strip().lower()
+        return distinct or "don"
+    return base_id
 
 
 def detect_card_bounds(im: Image.Image, var_threshold_pct: float = 0.15) -> tuple[int, int, int, int]:
@@ -306,22 +387,62 @@ def purge_cards_all() -> None:
         print(f"    [warn] failed to purge edge cache: {exc}")
 
 
+def has_clean_official_image(card_id: str) -> bool:
+    """Return True if en.onepiece-cardgame.com already serves a clean scan
+    for this card. Bandai's official publicity images are ~514x720 PNG and
+    watermark-free for regular cards — beats any eBay seller photo we could
+    find. Only replace when the official site has nothing (404), which is
+    the case for JP-exclusive Championship variants, DON cards, and some
+    event-only promos.
+
+    Tests the URL with HEAD so we don't download bytes just to check."""
+    url = OFFICIAL_IMG.format(id=card_id)
+    try:
+        resp = httpx.head(url, timeout=10, follow_redirects=True)
+        return resp.status_code == 200
+    except httpx.HTTPError:
+        # Treat network errors as "no" — err on the side of trying eBay.
+        return False
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("card_id", nargs="?", help="Card ID to fetch (e.g. P-001_jp1)")
     ap.add_argument("--all", action="store_true", help="Fetch every entry in jp_exclusives.json")
     ap.add_argument("--top", type=int, default=10, help="Consider top N candidates (default 10)")
     ap.add_argument("--dry-run", action="store_true", help="Pick + show, don't upload")
+    ap.add_argument("--force", action="store_true",
+                    help="Fetch even if the official site already has a clean image "
+                         "for this card. By default we skip those to avoid regressing "
+                         "from Bandai's ~514x720 official scans to an eBay seller photo.")
+    ap.add_argument("--min-card-px", type=int, default=800_000,
+                    help="Reject any candidate whose detected card bbox has fewer pixels "
+                         "than this. Default 800,000 (~780x1025) — beats the TCGPlayer "
+                         "1000x1000 fallback DON cards use, and avoids replacing a decent "
+                         "image with an eBay lot-photo crop.")
     args = ap.parse_args()
 
     if not args.card_id and not args.all:
         ap.error("pass a card_id or --all")
 
-    targets = None if args.all else [args.card_id]
-    entries = load_entries(targets)
-    if not entries:
-        print(f"No matching entries in {JSON_PATH}")
-        sys.exit(1)
+    if args.all:
+        entries = load_jp_entries(None)
+        if not entries:
+            print(f"No entries in {JSON_PATH}")
+            sys.exit(1)
+    else:
+        # Try the JP exclusives JSON first — it has the richest metadata
+        # (note, image_search_query). If not there, fall back to the D1 row
+        # via the API so this works for any card ID.
+        entries = load_jp_entries([args.card_id])
+        if not entries:
+            print(f"{args.card_id} not in {JSON_PATH}, looking up via API…")
+            row = load_card_from_api(args.card_id)
+            if not row:
+                print(f"  [error] card {args.card_id} not found in D1 either")
+                sys.exit(1)
+            entries = [row]
+            print(f"  using query built from card name: {row.get('name')!r}")
 
     client = EbayClient()
     client.get_token()
@@ -331,13 +452,23 @@ def main() -> None:
         uploaded = 0
         for i, entry in enumerate(entries, start=1):
             print(f"\n[{i}/{len(entries)}] {entry['id']}")
+            if not args.force and has_clean_official_image(entry["id"]):
+                print(f"    [skip] en.onepiece-cardgame.com already has a clean scan "
+                      f"for {entry['id']} (use --force to override)")
+                continue
             query = build_query(entry)
-            required_id = entry.get("base_id") or entry["id"].split("_")[0]
-            pick = pick_best(client, query, required_id, args.top, workdir)
+            required_match = compute_required_match(entry)
+            pick = pick_best(client, query, required_match, args.top, workdir)
             if not pick:
                 print("    [skip] no usable candidate found")
                 continue
             src_path, metrics = pick
+            bbox = metrics.get("bbox") or (0, 0, 0, 0)
+            card_px = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            if card_px < args.min_card_px:
+                print(f"    [skip] best candidate has only {card_px:,} card pixels "
+                      f"(<{args.min_card_px:,}) — would be a downgrade, leaving as is")
+                continue
             out_path = workdir / f"{entry['id']}.png"
             size = crop_and_save(src_path, out_path)
             print(f"    cropped -> {size[0]}x{size[1]}  {out_path.stat().st_size // 1024} KB")

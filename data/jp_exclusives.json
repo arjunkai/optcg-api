@@ -5,6 +5,8 @@
 
   "_image_note": "Each `image_url` points at the OPTCG API proxy (https://optcg-api.arjunbansal-ai.workers.dev/images/{id}) which serves from R2 bucket optcg-images/cards/{id}.png. Images sourced from real eBay seller photos — the `note` field describes the specific variant/stamp shown in the uploaded scan, so the image stays in sync with how the card is labeled. If you swap an image, update the note to match.",
 
+  "_image_query_note": "Each entry's `image_search_query`, if set, is used verbatim by scripts/fetch_card_image.py to search eBay. If unset, the script falls back to building a query from the `note` field. Use the override when a generic note-based query pulls in a different-looking variant (e.g. 'Championship' could match Championship Set, Store Championship Winner, Regional 2024, etc.). The overrides below are locked to the specific 2022 Championship Set Promo distribution that the current uploaded scans show.",
+
   "P-001_jp1": {
     "base_id": "P-001",
     "variant_type": "Alternate Art",
@@ -12,7 +14,8 @@
     "rarity": "Special",
     "image_url": "https://optcg-api.arjunbansal-ai.workers.dev/images/P-001_jp1",
     "price": 75,
-    "note": "2022 One Piece Championship Set Promo (JP)"
+    "note": "2022 One Piece Championship Set Promo (JP)",
+    "image_search_query": "P-001 2022 One Piece Championship Set Promo"
   },
 
   "P-003_jp1": {
@@ -22,7 +25,8 @@
     "rarity": "Special",
     "image_url": "https://optcg-api.arjunbansal-ai.workers.dev/images/P-003_jp1",
     "price": 10,
-    "note": "2022 One Piece Championship Set Promo (JP)"
+    "note": "2022 One Piece Championship Set Promo (JP)",
+    "image_search_query": "P-003 2022 One Piece Championship Set Promo"
   },
 
   "ST03-008_jp1": {
@@ -32,6 +36,7 @@
     "rarity": "Special",
     "image_url": "https://optcg-api.arjunbansal-ai.workers.dev/images/ST03-008_jp1",
     "price": 25,
-    "note": "2022 One Piece Championship Set Promo (JP)"
+    "note": "2022 One Piece Championship Set Promo (JP)",
+    "image_search_query": "ST03-008 2022 One Piece Championship Set Promo"
   }
 }
