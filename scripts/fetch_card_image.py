@@ -122,6 +122,33 @@ def load_card_from_api(card_id: str) -> dict | None:
     }
 
 
+def load_all_dons_from_api() -> list[dict]:
+    """Fetch every DON card from /cards/all and return them in our normalized
+    entry shape. Uses one bulk request (~3MB, edge-cached) rather than N
+    per-card lookups so the batch refresh stays fast."""
+    url = f"{PROXY_URL}/cards/all"
+    try:
+        resp = httpx.get(url, timeout=60)
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        print(f"    [error] /cards/all failed: {exc}")
+        return []
+    cards = resp.json().get("data", [])
+    dons = []
+    for c in cards:
+        cid = c.get("id") or ""
+        if not cid.startswith("DON-"):
+            continue
+        dons.append({
+            "id": cid,
+            "base_id": c.get("base_id") or cid.split("_")[0],
+            "name": c.get("name"),
+            "note": None,
+            "_source": "api/D1 (DON bulk)",
+        })
+    return dons
+
+
 def build_query(entry: dict) -> str:
     """Build an eBay search query for this card.
 
@@ -409,6 +436,10 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("card_id", nargs="?", help="Card ID to fetch (e.g. P-001_jp1)")
     ap.add_argument("--all", action="store_true", help="Fetch every entry in jp_exclusives.json")
+    ap.add_argument("--all-dons", action="store_true",
+                    help="Fetch every DON-NNN card from D1. Uses character-name queries "
+                         "and the --min-card-px threshold to avoid downgrading DONs whose "
+                         "TCGPlayer fallback already gives 1000x1000. Expect 150-200 cards.")
     ap.add_argument("--top", type=int, default=10, help="Consider top N candidates (default 10)")
     ap.add_argument("--dry-run", action="store_true", help="Pick + show, don't upload")
     ap.add_argument("--force", action="store_true",
@@ -422,10 +453,17 @@ def main() -> None:
                          "image with an eBay lot-photo crop.")
     args = ap.parse_args()
 
-    if not args.card_id and not args.all:
-        ap.error("pass a card_id or --all")
+    if not args.card_id and not args.all and not args.all_dons:
+        ap.error("pass a card_id, --all, or --all-dons")
 
-    if args.all:
+    if args.all_dons:
+        print("Fetching DON cards from D1 via /cards/all...")
+        entries = load_all_dons_from_api()
+        if not entries:
+            print("No DON cards found.")
+            sys.exit(1)
+        print(f"Found {len(entries)} DON cards.\n")
+    elif args.all:
         entries = load_jp_entries(None)
         if not entries:
             print(f"No entries in {JSON_PATH}")
@@ -436,7 +474,7 @@ def main() -> None:
         # via the API so this works for any card ID.
         entries = load_jp_entries([args.card_id])
         if not entries:
-            print(f"{args.card_id} not in {JSON_PATH}, looking up via API…")
+            print(f"{args.card_id} not in {JSON_PATH}, looking up via API...")
             row = load_card_from_api(args.card_id)
             if not row:
                 print(f"  [error] card {args.card_id} not found in D1 either")
