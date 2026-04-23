@@ -1,6 +1,31 @@
 import { parseCard, parseCards } from './db.js';
 
 export function registerCardRoutes(app) {
+  // Single-shot "every card" endpoint. Exists so the OPBindr client can
+  // warm its registry with ONE request instead of 6 paginated ones — cuts
+  // cold-visit time in half and lets Cloudflare's edge cache the whole
+  // result. Catalog changes rarely (weekly price refresh + occasional
+  // new set), so stale-while-revalidate with a 1h freshness window keeps
+  // clients close to current without hammering D1. MUST be registered
+  // BEFORE /cards/:card_id or Hono will route 'all' into that param and
+  // return a 404 for a non-existent card with id 'ALL'.
+  app.get('/cards/all', async (c) => {
+    const { results } = await c.env.DB.prepare(
+      'SELECT * FROM cards ORDER BY id ASC'
+    ).all();
+
+    return new Response(JSON.stringify({
+      count: results.length,
+      data: parseCards(results),
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+      },
+    });
+  });
+
   // Price history for a single card. Range caps the window in seconds so we
   // don't return the entire history by default. Rows come from the
   // `card_price_history` table, populated on each weekly price refresh.
