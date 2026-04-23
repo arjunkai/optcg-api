@@ -2,19 +2,30 @@ import { parseCard, parseCards } from './db.js';
 
 export function registerCardRoutes(app) {
   // Single-shot "every card" endpoint. Exists so the OPBindr client can
-  // warm its registry with ONE request instead of 6 paginated ones — cuts
-  // cold-visit time in half and lets Cloudflare's edge cache the whole
-  // result. Catalog changes rarely (weekly price refresh + occasional
-  // new set), so stale-while-revalidate with a 1h freshness window keeps
-  // clients close to current without hammering D1. MUST be registered
-  // BEFORE /cards/:card_id or Hono will route 'all' into that param and
-  // return a 404 for a non-existent card with id 'ALL'.
+  // warm its registry with ONE request instead of 6 paginated ones.
+  //
+  // Workers responses aren't auto-cached by the edge just because of a
+  // Cache-Control header — that only controls downstream (browser)
+  // caching. To get edge caching we have to explicitly use the Workers
+  // Cache API (`caches.default`). First hit runs the D1 query and puts
+  // the response in the edge cache; subsequent hits anywhere served by
+  // that edge node return in ~50 ms with no D1 query.
+  //
+  // MUST be registered BEFORE /cards/:card_id or Hono will route 'all'
+  // into that param and return a 404 for a non-existent card with
+  // id 'ALL'.
   app.get('/cards/all', async (c) => {
+    const cache = caches.default;
+    const cacheKey = new Request(c.req.url, { method: 'GET' });
+
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+
     const { results } = await c.env.DB.prepare(
       'SELECT * FROM cards ORDER BY id ASC'
     ).all();
 
-    return new Response(JSON.stringify({
+    const response = new Response(JSON.stringify({
       count: results.length,
       data: parseCards(results),
     }), {
@@ -24,6 +35,9 @@ export function registerCardRoutes(app) {
         'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
       },
     });
+
+    c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()));
+    return response;
   });
 
   // Price history for a single card. Range caps the window in seconds so we
