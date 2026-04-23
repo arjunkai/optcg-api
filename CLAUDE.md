@@ -68,7 +68,8 @@ Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPla
 
 ## Pricing
 - `price` REAL, `foil_price` REAL (unused), `delta_price`/`delta_7d_price` (future), `tcg_ids` TEXT (JSON array), `price_updated_at` INTEGER, `price_source` TEXT
-- Priority order: **manual > tcgplayer > dotgg**. Manual pins via `data/manual_prices.json`, overrides everything, never clobbered. TCGPlayer refreshes weekly and skips manual rows. dotgg fills whatever TCGPlayer/manual leaves NULL.
+- Priority chain: **manual > tcgplayer > dotgg > ebay > web**. Each backfill step only fills rows where `price IS NULL`, so first-write-wins. Manual pins via `data/manual_prices.json` and overrides everything (stamps `price_source='manual'`, skipped by every other importer via `AND price_source != 'manual'` or `AND price IS NULL` guards).
+- eBay backfill (`scripts/backfill_prices_ebay.py`) uses the shared `scripts/ebay_client.py` — OAuth client-credentials against `api.ebay.com`, searches Browse API per card, applies title-blocklist + consensus-of-3 + 20% trimmed median before writing. Requires `EBAY_APP_ID` and `EBAY_CERT_ID` env vars (GitHub secrets for CI).
 - Rollback any source with `UPDATE cards SET price=NULL, tcg_ids=NULL, price_updated_at=NULL, price_source=NULL WHERE price_source='<source>'`
 - Parallel mapping heuristic: TCGPlayer label → our `variant_type` via `VARIANT_LABEL_TO_TYPE` in `map_prices_to_cards.py`
 

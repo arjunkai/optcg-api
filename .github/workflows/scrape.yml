@@ -98,6 +98,20 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: python scripts/backfill_prices_dotgg.py
 
+      # Third-tier backfill: eBay Browse API for cards dotgg also missed.
+      # Only writes to rows where price IS NULL (respects TCGPlayer + dotgg).
+      # Stamps price_source='ebay'. See docs/superpowers/specs/
+      # 2026-04-21-ebay-api-integration-design.md for the defense model
+      # (title filters, consensus requirement, trimmed median).
+      - name: Backfill missing prices from eBay
+        continue-on-error: true
+        env:
+          EBAY_APP_ID: ${{ secrets.EBAY_APP_ID }}
+          EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m scripts.backfill_prices_ebay
+
       # Last-resort: web search for anything still unpriced. Uses Firecrawl
       # search (~20 credits/week — well under the free tier). Non-blocking so
       # a missing API key or credit exhaustion doesn't fail the whole run.
