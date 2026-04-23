@@ -6,7 +6,7 @@ export function registerCardRoutes(app) {
   // `card_price_history` table, populated on each weekly price refresh.
   app.get('/cards/:card_id/price-history', async (c) => {
     const raw = c.req.param('card_id');
-    const m = raw.match(/^([^_]+)(_[a-zA-Z]\d+)?$/);
+    const m = raw.match(/^([^_]+)(_[a-zA-Z]+\d+)?$/);
     const cardId = m ? m[1].toUpperCase() + (m[2] ? m[2].toLowerCase() : '') : raw.toUpperCase();
 
     const RANGES = { '1m': 30 * 86400, '3m': 90 * 86400, '6m': 180 * 86400, '1y': 365 * 86400, 'all': null };
@@ -41,9 +41,12 @@ export function registerCardRoutes(app) {
 
   app.get('/cards/:card_id', async (c) => {
     // Uppercase the set prefix (OP05-119) but preserve the variant suffix
-    // (_p8, _r1) since D1 stores those lowercase. Match `^[base-id](_[pr]\d+)?$`.
+    // (_p8, _r1, _jp1) since D1 stores those lowercase. The `+` on the
+    // letter class lets multi-letter suffixes like `_jp1` (JP-exclusive
+    // parallels) through — a plain `[a-zA-Z]` would have failed the whole
+    // regex and uppercased the entire ID.
     const raw = c.req.param('card_id');
-    const m = raw.match(/^([^_]+)(_[a-zA-Z]\d+)?$/);
+    const m = raw.match(/^([^_]+)(_[a-zA-Z]+\d+)?$/);
     const cardId = m ? m[1].toUpperCase() + (m[2] ? m[2].toLowerCase() : '') : raw.toUpperCase();
 
     const card = await c.env.DB.prepare(
