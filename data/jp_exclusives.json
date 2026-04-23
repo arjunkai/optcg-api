@@ -1,5 +1,7 @@
 {
-  "_comment": "JP-exclusive parallel variants (Championship promos, event prizes, etc.) that en.onepiece-cardgame.com does not list. Each entry is an alt-art parallel of an existing card; we inherit name/colors/cost/power/etc from the base row at import time. Suffix convention: _jpN for the Nth JP-exclusive variant of a given base, chosen so it never collides with the site's own _pN / _rN parallels. See scripts/import-jp-exclusives.js for the import logic.",
+  "_comment": "JP-exclusive parallel variants (Championship promos, event prizes, etc.) that en.onepiece-cardgame.com does not list. Each entry is an alt-art parallel of an existing card; name/colors/cost/power/etc inherit from the base row at import time. Suffix convention: _jpN for the Nth JP-exclusive variant of a given base, chosen so it never collides with the site's own _pN / _rN parallels. See scripts/import-jp-exclusives.js for import logic and scripts/price_jp_exclusives.py for eBay-based price refresh.",
+
+  "_price_note": "The `price` field in each entry is a conservative market estimate used as a floor so the UI never shows a null. Run `python -m scripts.price_jp_exclusives` with eBay creds to refresh with real consensus medians (stamps price_source='ebay_jp', overrides manual_jp). If eBay can't find consensus for a rare card, the manual_jp floor stays. Prices last reviewed 2026-04-23.",
 
   "P-001_jp1": {
     "base_id": "P-001",
@@ -7,6 +9,7 @@
     "finish": "textured",
     "rarity": "Special",
     "image_url": null,
+    "price": 180,
     "note": "2024 One Piece Championship Prize (JP)"
   },
 
@@ -16,6 +19,7 @@
     "finish": "textured",
     "rarity": "Special",
     "image_url": null,
+    "price": 45,
     "note": "2024 One Piece Championship Prize (JP)"
   },
 
@@ -25,6 +29,7 @@
     "finish": "textured",
     "rarity": "Special",
     "image_url": null,
+    "price": 100,
     "note": "One Piece Championship alt art (JP)"
   }
 }

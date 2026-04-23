@@ -66,6 +66,7 @@ if (entries.length === 0) {
   process.exit(0);
 }
 
+const now = Math.floor(Date.now() / 1000);
 const lines = [];
 for (const e of entries) {
   // Insert (or update) the card row, inheriting name/stats from base.
@@ -86,6 +87,18 @@ for (const e of entries) {
     `SELECT ${escSql(e.id)}, set_id, pack_id FROM card_sets WHERE card_id = ${escSql(e.base_id)} ` +
     `ON CONFLICT(card_id, set_id) DO NOTHING;`
   );
+
+  // Manual price seed — only runs if the JSON has `price` set.
+  // Stamped price_source='manual_jp' so later sources (TCGPlayer /
+  // dotgg / eBay) skip it, and so a one-line SQL query can roll them
+  // back. The later price_jp_exclusives.py eBay run REPLACES this
+  // only if it finds consensus; otherwise the manual floor stays.
+  if (typeof e.price === 'number') {
+    lines.push(
+      `UPDATE cards SET price=${e.price}, price_updated_at=${now}, ` +
+      `price_source='manual_jp' WHERE id=${escSql(e.id)};`
+    );
+  }
 }
 
 mkdirSync('scripts/jp_batches', { recursive: true });
