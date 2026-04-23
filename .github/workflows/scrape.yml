@@ -40,6 +40,16 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-d1.js
 
+      # JP-exclusive variants aren't on en.onepiece-cardgame.com so the
+      # main scraper misses them. This step reads the curated JSON seed
+      # and inherits name/colors/stats from the base card already in D1.
+      # Runs AFTER import-d1 so the base rows exist to inherit from.
+      - name: Import JP-exclusive variants
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/import-jp-exclusives.js
+
       - name: Scrape TCGPlayer prices
         run: python scripts/scrape_tcgplayer_prices_pw.py
 
