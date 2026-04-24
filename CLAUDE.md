@@ -31,6 +31,9 @@ Live: `https://optcg-api.arjunbansal-ai.workers.dev`  ·  Docs: `/docs`  ·  Ope
 - `scripts/build_all_prices.py` — parse + map prices → `data/card_prices_all.json`
 - `scripts/build_don_cards.py` — deduped DON catalog → `data/don_cards.json`
 - `scripts/import-d1.js` / `import-prices-d1.js` / `import-don-d1.js` — batched D1 writes
+- `scripts/import-jp-exclusives.js` — seeds JP-exclusive Championship variants from `data/jp_exclusives.json` into `cards` + `card_sets`, inheriting stats from the base row
+- `scripts/price_jp_exclusives.py` — eBay Browse API pricing for the JP exclusives, uses each entry's `note` or `image_search_query` as the search and stamps `price_source='ebay_jp'`
+- `scripts/fetch_card_image.py` — eBay-sourced card images for cards Bandai doesn't publish cleanly (JP exclusives, DON cards). Adaptive card-bounds detection, aspect-aware scoring (`card_area × sharpness × card_fill × aspect_bonus`), blocklist of slabbed/sealed listings, and a `--min-card-px` floor so it never downgrades an existing image. Uploads to R2 at `optcg-images/cards/{id}.png` then calls `/cards/all?refresh=1` to purge the edge cache. Flags: `--all` (all JP exclusives), `--all-dons` (all DON rows from D1), `<card_id>` (single card with D1 fallback), `--dry-run`, `--force`.
 - `.github/workflows/scrape.yml` — weekly auto-refresh of everything
 
 ## Refresh pipeline
@@ -59,6 +62,8 @@ Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPla
 2. Save exported JSON as `data/don_image_mapping.json`.
 3. `node scripts/upload_don_images_r2.js --dry-run` to verify, then without flag to upload.
 
+**Bulk eBay-sourced DON images** (alternative to PDF curation): run `python -m scripts.fetch_card_image --all-dons` to auto-pick the highest-scoring seller photo for every DON. 140/195 DONs had viable photos on the 2026-04-23 batch; the rest stayed on the TCGPlayer fallback because no listing beat the `--min-card-px` floor (default 800k pixels). Re-run any time to try to improve coverage as listings change.
+
 **Important:** `scripts/build_don_cards.py` writes the API proxy URL into `image_url`. Don't revert it to `tcgplayer-cdn.tcgplayer.com` or the weekly refresh will break the proxy behavior.
 
 ## Price history
@@ -69,7 +74,8 @@ Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPla
 ## Pricing
 - `price` REAL, `foil_price` REAL (unused), `delta_price`/`delta_7d_price` (future), `tcg_ids` TEXT (JSON array), `price_updated_at` INTEGER, `price_source` TEXT
 - Priority chain: **manual > tcgplayer > dotgg > ebay > web**. Each backfill step only fills rows where `price IS NULL`, so first-write-wins. Manual pins via `data/manual_prices.json` and overrides everything (stamps `price_source='manual'`, skipped by every other importer via `AND price_source != 'manual'` or `AND price IS NULL` guards).
-- eBay backfill (`scripts/backfill_prices_ebay.py`) uses the shared `scripts/ebay_client.py` — OAuth client-credentials against `api.ebay.com`, searches Browse API per card, applies title-blocklist + consensus-of-3 + 20% trimmed median before writing. Requires `EBAY_APP_ID` and `EBAY_CERT_ID` env vars (GitHub secrets for CI).
+- eBay backfill (`scripts/backfill_prices_ebay.py`) uses the shared `scripts/ebay_client.py` — OAuth client-credentials against `api.ebay.com`, searches Browse API per card, applies title-blocklist + consensus-of-3 + 20% trimmed median before writing. Requires `EBAY_APP_ID` and `EBAY_CERT_ID` env vars (GitHub secrets for CI, or in `.env` for local runs).
+- JP-exclusive Championship variants (`P-001_jp1` etc.) are seeded from `data/jp_exclusives.json` via `scripts/import-jp-exclusives.js` with a manual `price` floor stamped as `manual_jp`. `scripts/price_jp_exclusives.py` later replaces those with real consensus medians stamped `ebay_jp`. If no consensus is found (too few listings) the `manual_jp` floor stays so the UI never shows null.
 - Rollback any source with `UPDATE cards SET price=NULL, tcg_ids=NULL, price_updated_at=NULL, price_source=NULL WHERE price_source='<source>'`
 - Parallel mapping heuristic: TCGPlayer label → our `variant_type` via `VARIANT_LABEL_TO_TYPE` in `map_prices_to_cards.py`
 

@@ -14,7 +14,9 @@ A REST API for the One Piece Trading Card Game. Provides card and set data for a
 |--------|----------|-------------|
 | GET | `/cards` | All cards with filters |
 | HEAD | `/cards` | Same as GET but headers only (for uptime checks) |
+| GET | `/cards/all` | Single-shot dump of every card. Edge-cached for 1h via the Workers Cache API. Pass `?refresh=1` to purge the cached entry and re-run the D1 query (used by the image-refresh script after an upload). |
 | GET | `/cards/{id}` | Single card by ID |
+| GET | `/cards/{id}/price-history` | Historical prices, one point per weekly snapshot. Optional `?range=1m\|3m\|6m\|1y\|all` (default `1y`). |
 
 ### Sets
 | Method | Endpoint | Description |
@@ -26,7 +28,7 @@ A REST API for the One Piece Trading Card Game. Provides card and set data for a
 ### Images
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/images/{card_id}` | Proxy card image with CORS headers |
+| GET | `/images/{card_id}` | Card image with CORS headers. Lookup order: Cloudflare R2 bucket `optcg-images/cards/{id}.png` first (curated high-res scans for DON cards and JP-exclusive variants), then TCGPlayer CDN for uncurated DONs, then `en.onepiece-cardgame.com` as the last resort for regular cards. Served with `Cache-Control: public, max-age=86400`. |
 
 ---
 
@@ -98,8 +100,14 @@ GET /sets/OP-01/cards
 
 - Every priced card has `price` (USD), `tcg_ids` (array of TCGPlayer product IDs), `price_updated_at` (unix timestamp), and `price_source` for provenance.
 - DON cards have synthetic IDs `DON-001` through `DON-195` and `category: "Don"`. Filter with `?category=Don`.
-- DON `image_url` points at `/images/DON-NNN` on this API. The image route checks a Cloudflare R2 bucket first (curated high-res PDF scans), then falls back to TCGPlayer CDN for uncurated cards. Curated + uncurated DONs use the same URL.
+- DON `image_url` points at `/images/DON-NNN` on this API. The image route checks a Cloudflare R2 bucket first (curated scans), then falls back to TCGPlayer CDN for uncurated cards. Curated + uncurated DONs use the same URL.
 - Prices refresh weekly via the scheduled GitHub Actions workflow (Mondays 6am UTC).
+
+### JP-exclusive variants
+
+A handful of card IDs like `P-001_jp1`, `P-003_jp1`, `ST03-008_jp1` are JP-exclusive Championship prize variants that the official site (`en.onepiece-cardgame.com`) does not publish. They are seeded from `data/jp_exclusives.json` via `scripts/import-jp-exclusives.js`, inherit stats from their base card, and follow the `{base_id}_jpN` suffix convention so they never collide with Bandai's own `_pN`/`_rN` parallel IDs.
+
+Images for these variants come from real eBay seller photos uploaded to R2 at `optcg-images/cards/{id}.png`. The image endpoint serves them the same way it serves DON card images. Prices come from `scripts/price_jp_exclusives.py` (eBay Browse API, consensus-of-3 with trimmed median, stamps `price_source='ebay_jp'`).
 
 ### Price sources
 
@@ -108,9 +116,12 @@ Prices are aggregated from multiple sources. Every row is tagged with the source
 | `price_source` | Description | Priority |
 |---|---|---|
 | `manual` | Pinned override from `data/manual_prices.json` (always wins) | Highest |
+| `manual_jp` | Seed price for JP-exclusive variants from `data/jp_exclusives.json`. Replaced by `ebay_jp` when the pricing script finds a consensus. | Highest |
 | `web_tcgplayer`, `web_cardmarket`, `web_pricecharting`, `web_ebay`, etc. | Firecrawl web-search fallback for cards the primary sources don't cover | High |
 | `tcgplayer` | Scraped from TCGPlayer price guides. Default source for ~90% of cards | Medium |
 | `dotgg` | Fetched from api.dotgg.gg as a fallback | Low |
+| `ebay` | eBay Browse API gap-fill for cards still null after the other sources. Title-filtered and 20%-trimmed median across 3+ listings. | Low |
+| `ebay_jp` | eBay Browse API run specifically for JP-exclusive variants, using each entry's `note` or `image_search_query` as the search. | Low |
 
 Each higher-priority source skips rows already populated by a higher tier on re-runs, so a refresh never clobbers a manual override.
 
