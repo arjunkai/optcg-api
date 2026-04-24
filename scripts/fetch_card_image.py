@@ -63,6 +63,12 @@ except ImportError:
     print("Install numpy: pip install numpy", file=sys.stderr)
     sys.exit(1)
 
+try:
+    import cv2
+    HAS_CV2 = True
+except ImportError:
+    HAS_CV2 = False
+
 from scripts.ebay_client import EbayClient, apply_title_filters
 
 
@@ -376,7 +382,62 @@ def pick_best(client: EbayClient, query: str, required_id: str,
     return best[0], best[2]
 
 
+def extract_card_cv2(src_path: Path, out_w: int = 800, out_h: int = 1120) -> Image.Image | None:
+    """Detect the card's four corners in the photo, perspective-warp it to
+    an exact 2.5:3.5 rectangle. This gives a card-only PNG with zero
+    background, no stand, upright orientation. Works best on photos with
+    clear contrast between the card and background (dark felt, white
+    paper, uniform mats). Returns None when no 4-sided contour is found.
+
+    Caller should fall back to the variance-based cropper in that case.
+    out_w / out_h default to 800x1120 (card aspect 5:7) so downstream
+    systems can assume a consistent shape across all cv2-extracted cards."""
+    im = cv2.imread(str(src_path))
+    if im is None:
+        return None
+    h, w = im.shape[:2]
+    img_area = w * h
+
+    gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 30, 120)
+    dilated = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    for c in sorted(contours, key=cv2.contourArea, reverse=True)[:15]:
+        area = cv2.contourArea(c)
+        if area < img_area * 0.15:
+            continue
+        peri = cv2.arcLength(c, True)
+        approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+        if len(approx) != 4:
+            continue
+        quad = approx.reshape(4, 2).astype(np.float32)
+        s = quad.sum(axis=1)
+        d = np.diff(quad, axis=1).flatten()
+        tl, br = quad[np.argmin(s)], quad[np.argmax(s)]
+        tr, bl = quad[np.argmin(d)], quad[np.argmax(d)]
+        src_pts = np.array([tl, tr, br, bl], dtype=np.float32)
+        dst_pts = np.array([[0, 0], [out_w, 0], [out_w, out_h], [0, out_h]],
+                           dtype=np.float32)
+        M = cv2.getPerspectiveTransform(src_pts, dst_pts)
+        warped = cv2.warpPerspective(im, M, (out_w, out_h))
+        # cv2 returns BGR; PIL expects RGB.
+        return Image.fromarray(cv2.cvtColor(warped, cv2.COLOR_BGR2RGB))
+    return None
+
+
 def crop_and_save(src_path: Path, out_path: Path, pad: int = 4) -> tuple[int, int]:
+    # Prefer the cv2 contour extractor: finds the card's 4 corners, warps to
+    # exact 2.5:3.5 aspect, cuts stands/mats/sleeves off entirely. Falls back
+    # to the variance-based cropper when no quadrilateral is detected
+    # (cluttered backgrounds, cards too close to frame edges, broken edges).
+    if HAS_CV2:
+        extracted = extract_card_cv2(src_path)
+        if extracted is not None:
+            extracted.save(out_path, "PNG", optimize=True)
+            return extracted.size
+
     im = Image.open(src_path).convert("RGB")
     w, h = im.size
     (left, top, right, bottom), _ = find_card_bounds_adaptive(im)
