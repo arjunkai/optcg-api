@@ -102,10 +102,39 @@ def main() -> None:
                 "tcg_id": tcg_id,
             }
 
-    # Assign synthetic IDs in insertion order (stable: original-set order)
+    # Assign synthetic IDs via the lock file (if present) so DON-NNN stays
+    # stable across rebuilds. Prior versions assigned IDs purely by
+    # iteration order of the catalog, which meant a new set or a different
+    # scrape order silently re-numbered the whole collection — breaking any
+    # downstream curation keyed off DON-NNN (e.g. opbindr's donCharacters.js).
+    #
+    # Flow:
+    #   1. Load lock (tcg_id -> DON-NNN from a previous run).
+    #   2. Anything in the catalog whose tcg_id is in the lock keeps its
+    #      existing DON-NNN.
+    #   3. Anything new gets the next free DON-NNN (max existing + 1).
+    #   4. Write the lock back so future runs see these assignments.
+    LOCK_PATH = DATA_DIR / "don_id_lock.json"
+    if LOCK_PATH.exists():
+        lock_blob = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+        locked = {int(v): k for k, v in lock_blob.get("mappings", {}).items()}
+    else:
+        lock_blob = {"mappings": {}}
+        locked = {}
+
+    next_id = 1
+    if locked:
+        next_id = max(int(k.split("-", 1)[1]) for k in locked.values()) + 1
+
     don_cards: list[dict] = []
-    for i, (tcg_id, data) in enumerate(catalog.items(), start=1):
-        don_id = f"DON-{i:03d}"
+    new_lock: dict[str, int] = {}
+    for tcg_id, data in catalog.items():
+        if tcg_id in locked:
+            don_id = locked[tcg_id]
+        else:
+            don_id = f"DON-{next_id:03d}"
+            next_id += 1
+        new_lock[don_id] = tcg_id
         don_cards.append({
             "id": don_id,
             "name": data["name"],
@@ -117,6 +146,35 @@ def main() -> None:
             "tcg_ids": [tcg_id],
             "price_updated_at": now,
         })
+
+    # Keep DON IDs numerically ordered in the output for consistency with
+    # consumers that assume DON-001 comes before DON-002 in the list.
+    don_cards.sort(key=lambda c: int(c["id"].split("-", 1)[1]))
+
+    # Persist the lock so the next run sees this assignment. Preserve the
+    # _comment / _generated metadata if present.
+    lock_out = {
+        "_comment": lock_blob.get("_comment") or (
+            "Stable DON-NNN -> tcg_id assignment lock. build_don_cards.py "
+            "reads this first and keeps existing IDs fixed even if scrape/"
+            "dedupe order changes. New tcg_ids discovered in a scrape get "
+            "appended as the next free DON-NNN. Don't hand-edit entries -- "
+            "a stable mapping is the whole point."
+        ),
+        "_generated": f"Auto-written by build_don_cards.py on {time.strftime('%Y-%m-%d')}",
+        "mappings": {k: new_lock[k] for k in sorted(new_lock.keys(),
+                                                     key=lambda x: int(x.split("-", 1)[1]))},
+    }
+    LOCK_PATH.write_text(json.dumps(lock_out, indent=2), encoding="utf-8")
+
+    # Warn if the lock references tcg_ids the scrape didn't find this time.
+    # Doesn't break anything (those DONs just aren't in the output), but the
+    # user should know a card silently disappeared from TCGPlayer.
+    orphan_lock = [tid for tid in locked if tid not in catalog]
+    if orphan_lock:
+        print(f"WARN: {len(orphan_lock)} locked tcg_ids not found in this scrape:")
+        for tid in orphan_lock[:10]:
+            print(f"  tcg_id={tid} locked to {locked[tid]}")
 
     OUT_PATH.write_text(json.dumps(don_cards, ensure_ascii=False, indent=2), encoding="utf-8")
 

@@ -6,6 +6,7 @@ data/*
 !data/manual_prices.json
 !data/don_image_mapping.json
 !data/jp_exclusives.json
+!data/don_id_lock.json
 data/don_resolution_audit.json
 .claude/
 scripts/import*.sql
