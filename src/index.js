@@ -5,6 +5,7 @@ import { registerCardRoutes } from './cards.js';
 import { registerImageRoutes } from './images.js';
 import { registerDocsRoutes } from './docs.js';
 import { gate } from './auth.js';
+import { registerPokemonRoutes } from './pokemon/index.js';
 
 const CORS_ALLOWED_EXACT = [
   'https://opbindr.com',
@@ -55,5 +56,6 @@ registerSetRoutes(app);
 registerCardRoutes(app);
 registerImageRoutes(app);
 registerDocsRoutes(app);
+registerPokemonRoutes(app);
 
 export default app;

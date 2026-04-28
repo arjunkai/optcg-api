@@ -1,0 +1,115 @@
+// Pokémon cards endpoints. Three shapes mirroring the OPTCG layout:
+//   GET /pokemon/cards/index?lang=en   slim list for binder render
+//   GET /pokemon/cards/:id?lang=en      full detail (used by the card enlarge modal)
+//   GET /pokemon/cards/all?lang=en      legacy full-shape list (fallback / debugging)
+//
+// All three live in D1 via the daily TCGdex import (Task 2.3, separate
+// commit). Until the import has run for the requested language the
+// endpoints return empty `data: []`. The frontend's normalizer + cache
+// layer is tolerant of empty responses — the binder grid will just
+// display "Add Cards" buttons until data lands.
+//
+// Slim shape mirrors the OPTCG slim shape spirit: only the fields
+// the binder grid + AddCardsModal filter UI need. CardEnlargeModal
+// hits /pokemon/cards/:id for the heavy fields (effect/abilities/attacks).
+
+const VALID_LANGS = new Set(['en', 'ja', 'zh-cn', 'zh-tw']);
+
+function jsonResponse(obj, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+    },
+  });
+}
+
+function rowToSlim(row) {
+  return {
+    id: row.card_id,
+    lang: row.lang,
+    set_id: row.set_id,
+    local_id: row.local_id,
+    name: row.name,
+    category: row.category,
+    rarity: row.rarity,
+    hp: row.hp,
+    types: row.types_csv ? row.types_csv.split(',').filter(Boolean) : [],
+    stage: row.stage,
+    variants: row.variants_json ? JSON.parse(row.variants_json) : {},
+    image_high: row.image_high,
+    image_low: row.image_low,
+    pricing: row.pricing_json ? JSON.parse(row.pricing_json) : {},
+    dominant_color: row.dominant_color,
+  };
+}
+
+export function registerPokemonCardRoutes(app) {
+  // Slim index. Same edge-cache pattern as OPTCG /cards/index.
+  // MUST be registered BEFORE /pokemon/cards/:id.
+  app.get('/pokemon/cards/index', async (c) => {
+    const lang = (c.req.query('lang') || 'en').toLowerCase();
+    if (!VALID_LANGS.has(lang)) return jsonResponse({ error: 'invalid lang' }, 400);
+
+    const cache = caches.default;
+    const baseUrl = new URL(c.req.url);
+    const refresh = baseUrl.searchParams.get('refresh') === '1';
+    baseUrl.searchParams.delete('refresh');
+    const cacheKey = new Request(baseUrl.toString(), { method: 'GET' });
+    if (refresh) await cache.delete(cacheKey);
+    else {
+      const hit = await cache.match(cacheKey);
+      if (hit) return hit;
+    }
+
+    const { results } = await c.env.DB.prepare(`
+      SELECT card_id, lang, set_id, local_id, name, category, rarity,
+             hp, types_csv, stage, variants_json,
+             image_high, image_low, pricing_json, dominant_color
+      FROM ptcg_cards
+      WHERE lang = ?
+      ORDER BY set_id, local_id
+    `).bind(lang).all();
+
+    const data = (results || []).map(rowToSlim);
+    const response = jsonResponse({ count: data.length, data });
+    c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()));
+    return response;
+  });
+
+  // Legacy full-shape list. Useful for debugging the import; the
+  // frontend uses /pokemon/cards/index in the normal path.
+  // MUST be registered BEFORE /pokemon/cards/:id so Hono doesn't match
+  // "all" as a :card_id.
+  app.get('/pokemon/cards/all', async (c) => {
+    const lang = (c.req.query('lang') || 'en').toLowerCase();
+    if (!VALID_LANGS.has(lang)) return jsonResponse({ error: 'invalid lang' }, 400);
+    const { results } = await c.env.DB.prepare(`
+      SELECT * FROM ptcg_cards WHERE lang = ? ORDER BY set_id, local_id
+    `).bind(lang).all();
+    const data = (results || []).map(row => {
+      const slim = rowToSlim(row);
+      const raw = row.raw ? JSON.parse(row.raw) : {};
+      return { ...slim, ...raw };
+    });
+    return jsonResponse({ count: data.length, data });
+  });
+
+  // Single-card detail. Returns full row including raw TCGdex JSON for
+  // CardEnlargeModal's heavy fields (effect/abilities/attacks).
+  app.get('/pokemon/cards/:card_id', async (c) => {
+    const lang = (c.req.query('lang') || 'en').toLowerCase();
+    if (!VALID_LANGS.has(lang)) return jsonResponse({ error: 'invalid lang' }, 400);
+    const cardId = c.req.param('card_id');
+
+    const row = await c.env.DB.prepare(`
+      SELECT * FROM ptcg_cards WHERE card_id = ? AND lang = ?
+    `).bind(cardId, lang).first();
+    if (!row) return jsonResponse({ error: 'not found' }, 404);
+
+    const slim = rowToSlim(row);
+    const raw = row.raw ? JSON.parse(row.raw) : {};
+    return jsonResponse({ ...slim, ...raw });
+  });
+}
