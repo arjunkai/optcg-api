@@ -49,6 +49,75 @@ export function registerCardRoutes(app) {
     return response;
   });
 
+  // Slim index. Same shape spirit as /cards/all but drops the heavy
+  // fields (effect text, trigger text, image_url, tcg_ids, sets
+  // membership, price_updated_at) so the OPBindr client can warm its
+  // registry with ~80% fewer bytes. CardEnlargeModal fetches the full
+  // shape via /cards/:id when it actually opens a card.
+  //
+  // dominant_color is reserved for the Phase 3 placeholder work — null
+  // for now so the JSON shape doesn't have to change when the column
+  // gets populated.
+  //
+  // Same edge-caching strategy as /cards/all: explicit Cache API put
+  // so subsequent edge-served hits skip D1 entirely.
+  //
+  // MUST be registered BEFORE /cards/:card_id (same reason as /cards/all).
+  app.get('/cards/index', async (c) => {
+    const cache = caches.default;
+    const baseUrl = new URL(c.req.url);
+    const refresh = baseUrl.searchParams.get('refresh') === '1';
+    baseUrl.searchParams.delete('refresh');
+    const cacheKey = new Request(baseUrl.toString(), { method: 'GET' });
+
+    if (refresh) {
+      await cache.delete(cacheKey);
+    } else {
+      const hit = await cache.match(cacheKey);
+      if (hit) return hit;
+    }
+
+    const { results } = await c.env.DB.prepare(`
+      SELECT id, name, category, rarity, colors, attributes, types,
+             cost, power, parallel, variant_type, finish,
+             price, price_source
+      FROM cards
+      ORDER BY id ASC
+    `).all();
+
+    const slim = results.map(row => ({
+      id: row.id,
+      name: row.name,
+      category: row.category,
+      rarity: row.rarity,
+      colors: row.colors ? JSON.parse(row.colors) : null,
+      attributes: row.attributes ? JSON.parse(row.attributes) : null,
+      types: row.types ? JSON.parse(row.types) : null,
+      cost: row.cost,
+      power: row.power,
+      parallel: Boolean(row.parallel),
+      variant_type: row.variant_type,
+      finish: row.finish,
+      price: row.price,
+      price_source: row.price_source,
+      dominant_color: null, // Phase 3 fills this in once the D1 column exists
+    }));
+
+    const response = new Response(JSON.stringify({
+      count: slim.length,
+      data: slim,
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+      },
+    });
+
+    c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()));
+    return response;
+  });
+
   // Price history for a single card. Range caps the window in seconds so we
   // don't return the entire history by default. Rows come from the
   // `card_price_history` table, populated on each weekly price refresh.
