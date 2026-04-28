@@ -165,7 +165,12 @@ Open `http://localhost:8787/docs`
 
 ---
 
-## Data Source
+## Code, Data, and Access
 
-Card data scraped from the official [One Piece Card Game website](https://en.onepiece-cardgame.com/cardlist/).  
-All card data is © Eiichiro Oda / Shueisha, Toei Animation, Bandai Namco Entertainment Inc.
+**Code.** The Worker code in this repo is MIT-licensed. Clone it, modify it, deploy your own instance against your own Cloudflare account, D1 database, and R2 bucket. See `LICENSE` for the full text.
+
+**Card data.** Card data is derived from public upstream sources: Bandai's official [One Piece Card Game website](https://en.onepiece-cardgame.com/cardlist/), TCGPlayer price guides, dotgg.gg, and eBay listings. The MIT license on the code does not grant any rights to the data itself. If you need a card-data API for your own service, run the scrape pipeline in `scraper.py` and `scripts/` against the same upstream sources rather than reusing this project's D1 contents.
+
+**Card images.** Card art is © Eiichiro Oda / Shueisha, Toei Animation, Bandai Namco Entertainment Inc. The `/images/*` endpoint is a proxy. No rights to the images are claimed by this project.
+
+**Deployed API access.** `https://optcg-api.arjunbansal-ai.workers.dev` is gated to opbindr.com origins (and a small allowlist of approved partners). Browser callers from non-allowed origins receive `403 origin not allowed`; non-browser callers without a valid `X-API-Key` receive `401 api key required`. Public endpoints (`/`, `/docs`, `/openapi.json`, and `/images/*`) stay open so the API stays discoverable and binder thumbnails shared on Discord or Twitter still render. Non-commercial development access is available on request: open an issue or email arjun@neuroplexlabs.com.
