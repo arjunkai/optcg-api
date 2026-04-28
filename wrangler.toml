@@ -10,3 +10,9 @@ database_id = "111dd49b-f7ec-472b-b23f-5b2191edb9ce"
 [[r2_buckets]]
 binding = "IMAGES"
 bucket_name = "optcg-images"
+
+# Required secret (set via `npx wrangler secret put API_KEYS`):
+#   API_KEYS — comma-separated list of valid api keys, e.g.,
+#   "abc123def456,ghi789jkl012". Required only for non-browser callers
+#   (curl, server-to-server). Browser callers go through the CORS
+#   Origin allowlist in src/auth.js and don't need a key.

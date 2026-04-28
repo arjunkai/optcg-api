@@ -14,5 +14,6 @@ scripts/*_batches/
 scripts/.tmp/
 node_modules/
 .wrangler/
+.dev.vars
 docs/superpowers/
 data/.ebay_token.json
