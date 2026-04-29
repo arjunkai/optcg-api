@@ -111,6 +111,9 @@ Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPla
   xyp-XY84, xyp-XY89 all have null prices in their cardmarket object)
   and adds an index on `ptcg_cards(price_source)` matching the OPTCG
   precedent.
+- migration 009: adds `retreat INTEGER` to `ptcg_cards`, backfilled from
+  the raw TCGdex JSON. Closes a sort-pill gap surfaced by the A.2 code
+  review.
 
 ## Pricing
 - `price` REAL, `foil_price` REAL (unused), `delta_price`/`delta_7d_price` (future), `tcg_ids` TEXT (JSON array), `price_updated_at` INTEGER, `price_source` TEXT
