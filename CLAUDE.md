@@ -128,3 +128,19 @@ Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPla
 - Windows `node` crashed mid-batch historically — re-run individual `scripts/import_batch_N.sql` files via `wrangler d1 execute` if Node exits
 - Playwright needs `state="attached"` (not default `"visible"`) when waiting for TCGPlayer table cells since they can be below fold
 - `--wait-for 5000` on Firecrawl calls — some set pages JS-render the table late
+
+## pokemontcg-data submodule
+
+`data/pokemontcg-data/` is a git submodule pointing at
+[PokemonTCG/pokemon-tcg-data](https://github.com/PokemonTCG/pokemon-tcg-data).
+Public JSON dump backing pokemontcg.io. Used as the secondary English
+data source for `ptcg_cards.image_high` and TCGplayer prices when TCGdex
+is missing data.
+
+Update with:
+
+    git submodule update --remote data/pokemontcg-data
+
+Or `git pull --recurse-submodules` for combined repo + submodule pull.
+The submodule SHA is pinned in this repo so the import is reproducible.
+Fresh clones need `git submodule update --init` once.
