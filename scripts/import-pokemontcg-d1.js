@@ -74,6 +74,9 @@ for (const tcgdexId of tcgdexSetsToProcess) {
     const pkmLocalId = String(c.number ?? c.id?.split('-')[1] ?? '').trim();
     if (!pkmLocalId) continue;
 
+    // Three forms because TCGdex doesn't pad consistently. `|| pkmLocalId`
+    // falls back when stripping leading zeros leaves the empty string
+    // (e.g. pkmLocalId = "0" → "" → keep the original).
     const candidates = new Set([
       `${tcgdexId}-${pkmLocalId}`,
       `${tcgdexId}-${pkmLocalId.replace(/^0+/, '') || pkmLocalId}`,
@@ -111,6 +114,10 @@ for (const tcgdexId of tcgdexSetsToProcess) {
       continue;
     }
     console.log(`[${tcgdexId}] executing ${file} (${slice.length} stmts)...`);
+    // `shell: true` is required on Windows so npx.cmd resolves; args are
+    // shell-interpolated as a side effect. Safe here because every
+    // interpolated value (tcgdexId, batch index) is alphanumeric — keys
+    // from the committed mapping JSON, never user input.
     execFileSync(npx, ['wrangler', 'd1', 'execute', DB_NAME, `--file=${file}`, '--remote'], {
       stdio: 'inherit', shell: true,
     });
