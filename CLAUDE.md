@@ -99,6 +99,15 @@ Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPla
 - Served to OPBindr via `GET /cards/{id}/price-history?range=…` (see `src/cards.js`). Schema docs in `src/docs.js`.
 - Backfill was attempted via `scripts/backfill_price_history.js` against TCGPlayer's `infinite-api.tcgplayer.com/price/history/{tcg_id}/detailed` endpoint. Endpoint works and returns clean JSON, but rate-limits at AWS ELB after ~10 requests per IP. Script is checked in for future use (see its header) but not currently run. Charts populate forward from the weekly snapshot.
 
+## Migration log
+- migration 001: card indexes
+- migration 002: variant_type column on cards
+- migration 003: pricing columns on cards
+- migration 004: price_source column on cards
+- migration 005: price_history table + seed from cards.price
+- migration 006: ptcg_cards and ptcg_sets tables (Pokémon TCG schema)
+- migration 007: adds `price_source` to `ptcg_cards`. Backfilled to 'cardmarket' for existing priced rows. Future writes must set this: pokemontcg.io merge sets 'pokemontcg', manual overrides set 'manual'.
+
 ## Pricing
 - `price` REAL, `foil_price` REAL (unused), `delta_price`/`delta_7d_price` (future), `tcg_ids` TEXT (JSON array), `price_updated_at` INTEGER, `price_source` TEXT
 - Priority chain: **manual > tcgplayer > dotgg > ebay > web**. Each backfill step only fills rows where `price IS NULL`, so first-write-wins. Manual pins via `data/manual_prices.json` and overrides everything (stamps `price_source='manual'`, skipped by every other importer via `AND price_source != 'manual'` or `AND price IS NULL` guards).
