@@ -21,6 +21,11 @@
  * No substring fallback — it produced false positives like XY Trainer
  * Kits matching the base XY set. Anything below this bar lands in
  * unmatched.json for hand curation.
+ *
+ * Re-runs preserve any hand-curated entries already in mapping.json:
+ * we read the file first, only fill in entries the algorithm produces
+ * that aren't already mapped, and write the union sorted by id so
+ * git diffs stay clean.
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
@@ -32,6 +37,10 @@ const OUT_UNMATCHED = 'data/ptcg_set_mapping.unmatched.json';
 
 if (!existsSync(TCGDEX_CACHE)) {
   console.error(`Missing ${TCGDEX_CACHE}. Run scripts/ptcg-fetch.js first.`);
+  process.exit(1);
+}
+if (!existsSync(PKM_SETS)) {
+  console.error(`Missing ${PKM_SETS}. Run \`git submodule update --init data/pokemontcg-data\`.`);
   process.exit(1);
 }
 
@@ -57,11 +66,21 @@ for (const s of pkmSets) {
   pkmByNameYear.set(`${normalizeName(s.name)}::${yearOf(s.releaseDate)}`, s.id);
 }
 
-const mapping = {};
+// Hand-curated entries already in mapping.json win on re-run. Algorithm
+// only fills in TCGdex ids not already covered.
+const existing = existsSync(OUT_MAPPING)
+  ? JSON.parse(readFileSync(OUT_MAPPING, 'utf-8'))
+  : {};
+
+const mapping = { ...existing };
 const unmatched = [];
-const trace = { id: 0, nameYear: 0, nameYearFuzz: 0 };
+const trace = { id: 0, nameYear: 0, nameYearFuzz: 0, preserved: 0 };
 
 for (const t of tcgdexSets) {
+  if (mapping[t.id]) {
+    trace.preserved++;
+    continue;
+  }
   const tName = normalizeName(t.name);
   const tYear = yearOf(t.releaseDate);
 
@@ -93,10 +112,14 @@ for (const t of tcgdexSets) {
   unmatched.push({ tcgdex_id: t.id, name: t.name, releaseDate: t.releaseDate });
 }
 
-writeFileSync(OUT_MAPPING, JSON.stringify(mapping, null, 2));
+const sortedMapping = Object.fromEntries(
+  Object.entries(mapping).sort(([a], [b]) => a.localeCompare(b)),
+);
+writeFileSync(OUT_MAPPING, JSON.stringify(sortedMapping, null, 2));
 writeFileSync(OUT_UNMATCHED, JSON.stringify(unmatched, null, 2));
 
 console.log(`Mapped: ${Object.keys(mapping).length}`);
+console.log(`  preserved      : ${trace.preserved}`);
 console.log(`  by id          : ${trace.id}`);
 console.log(`  by name+year   : ${trace.nameYear}`);
 console.log(`  by name+year±1 : ${trace.nameYearFuzz}`);
