@@ -1,0 +1,217 @@
+[
+  {
+    "tcgdex_id": "wp",
+    "name": "W Promotional",
+    "releaseDate": "1999-09-01"
+  },
+  {
+    "tcgdex_id": "jumbo",
+    "name": "Jumbo cards",
+    "releaseDate": "2000-02-01"
+  },
+  {
+    "tcgdex_id": "sp",
+    "name": "Sample",
+    "releaseDate": "2002-08-01"
+  },
+  {
+    "tcgdex_id": "ex5.5",
+    "name": "Poké Card Creator Pack",
+    "releaseDate": "2004-07-01"
+  },
+  {
+    "tcgdex_id": "exu",
+    "name": "Unseen Forces Unown Collection",
+    "releaseDate": "2005-08-22"
+  },
+  {
+    "tcgdex_id": "tk-dp-l",
+    "name": "DP trainer Kit (Lucario)",
+    "releaseDate": "2007-09-01"
+  },
+  {
+    "tcgdex_id": "tk-dp-m",
+    "name": "DP trainer Kit (Manaphy)",
+    "releaseDate": "2007-09-01"
+  },
+  {
+    "tcgdex_id": "tk-hs-g",
+    "name": "HS trainer Kit (Gyarados)",
+    "releaseDate": "2010-05-01"
+  },
+  {
+    "tcgdex_id": "tk-hs-r",
+    "name": "HS trainer Kit (Raichu)",
+    "releaseDate": "2010-05-01"
+  },
+  {
+    "tcgdex_id": "tk-bw-e",
+    "name": "BW trainer Kit (Excadrill)",
+    "releaseDate": "2011-09-01"
+  },
+  {
+    "tcgdex_id": "tk-bw-z",
+    "name": "BW trainer Kit (Zoroark)",
+    "releaseDate": "2011-09-01"
+  },
+  {
+    "tcgdex_id": "rc",
+    "name": "Radiant Collection",
+    "releaseDate": "2013-11-06"
+  },
+  {
+    "tcgdex_id": "xya",
+    "name": "Yellow A Alternate",
+    "releaseDate": "2014-02-05"
+  },
+  {
+    "tcgdex_id": "tk-xy-n",
+    "name": "XY trainer Kit (Noivern)",
+    "releaseDate": "2014-03-12"
+  },
+  {
+    "tcgdex_id": "tk-xy-sy",
+    "name": "XY trainer Kit (Sylveon)",
+    "releaseDate": "2014-03-12"
+  },
+  {
+    "tcgdex_id": "tk-xy-w",
+    "name": "XY trainer Kit (Wigglytuff)",
+    "releaseDate": "2014-11-01"
+  },
+  {
+    "tcgdex_id": "tk-xy-b",
+    "name": "XY trainer Kit (Bisharp)",
+    "releaseDate": "2014-11-01"
+  },
+  {
+    "tcgdex_id": "tk-xy-latio",
+    "name": "XY trainer Kit (Latios)",
+    "releaseDate": "2015-04-29"
+  },
+  {
+    "tcgdex_id": "tk-xy-latia",
+    "name": "XY trainer Kit (Latias)",
+    "releaseDate": "2015-04-29"
+  },
+  {
+    "tcgdex_id": "tk-xy-p",
+    "name": "XY trainer Kit (Pikachu Libre)",
+    "releaseDate": "2016-04-27"
+  },
+  {
+    "tcgdex_id": "tk-xy-su",
+    "name": "XY trainer Kit (Suicune)",
+    "releaseDate": "2016-04-27"
+  },
+  {
+    "tcgdex_id": "tk-sm-l",
+    "name": "SM trainer Kit (Lycanroc)",
+    "releaseDate": "2017-04-21"
+  },
+  {
+    "tcgdex_id": "tk-sm-r",
+    "name": "SM trainer Kit (Alolan Raichu)",
+    "releaseDate": "2017-04-21"
+  },
+  {
+    "tcgdex_id": "2023sv",
+    "name": "McDonald's Collection 2023",
+    "releaseDate": "2023-08-01"
+  },
+  {
+    "tcgdex_id": "mfb",
+    "name": "My First Battle",
+    "releaseDate": "2023-09-29"
+  },
+  {
+    "tcgdex_id": "P-A",
+    "name": "Promos-A",
+    "releaseDate": "2024-10-30"
+  },
+  {
+    "tcgdex_id": "A1",
+    "name": "Genetic Apex",
+    "releaseDate": "2024-10-30"
+  },
+  {
+    "tcgdex_id": "2024sv",
+    "name": "McDonald's Collection 2024",
+    "releaseDate": "2024-12-04"
+  },
+  {
+    "tcgdex_id": "A1a",
+    "name": "Mythical Island",
+    "releaseDate": "2024-12-17"
+  },
+  {
+    "tcgdex_id": "A2",
+    "name": "Space-Time Smackdown",
+    "releaseDate": "2025-01-30"
+  },
+  {
+    "tcgdex_id": "A2a",
+    "name": "Triumphant Light",
+    "releaseDate": "2025-02-28"
+  },
+  {
+    "tcgdex_id": "A2b",
+    "name": "Shining Revelry",
+    "releaseDate": "2025-03-27"
+  },
+  {
+    "tcgdex_id": "A3",
+    "name": "Celestial Guardians",
+    "releaseDate": "2025-04-30"
+  },
+  {
+    "tcgdex_id": "A3a",
+    "name": "Extradimensional Crisis",
+    "releaseDate": "2025-05-29"
+  },
+  {
+    "tcgdex_id": "A3b",
+    "name": "Eevee Grove",
+    "releaseDate": "2025-06-26"
+  },
+  {
+    "tcgdex_id": "A4",
+    "name": "Wisdom of Sea and Sky",
+    "releaseDate": "2025-07-30"
+  },
+  {
+    "tcgdex_id": "A4a",
+    "name": "Secluded Springs",
+    "releaseDate": "2025-08-28"
+  },
+  {
+    "tcgdex_id": "mee",
+    "name": "Mega Evolution Energy",
+    "releaseDate": "2025-09-25"
+  },
+  {
+    "tcgdex_id": "mep",
+    "name": "MEP Black Star Promos",
+    "releaseDate": "2025-09-26"
+  },
+  {
+    "tcgdex_id": "B1",
+    "name": "Mega Rising",
+    "releaseDate": "2025-10-30"
+  },
+  {
+    "tcgdex_id": "B1a",
+    "name": "Crimson Blaze",
+    "releaseDate": "2025-12-17"
+  },
+  {
+    "tcgdex_id": "B2",
+    "name": "Fantastical Parade",
+    "releaseDate": "2026-01-29"
+  },
+  {
+    "tcgdex_id": "B2a",
+    "name": "Paldean Wonders",
+    "releaseDate": "2026-02-26"
+  }
+]
