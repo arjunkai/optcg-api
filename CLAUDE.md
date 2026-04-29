@@ -107,6 +107,10 @@ Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPla
 - migration 005: price_history table + seed from cards.price
 - migration 006: ptcg_cards and ptcg_sets tables (Pokémon TCG schema)
 - migration 007: adds `price_source` to `ptcg_cards`. Backfilled to 'cardmarket' for existing priced rows. Future writes must set this: pokemontcg.io merge sets 'pokemontcg', manual overrides set 'manual'.
+- migration 008: fixup for 007 — clears 3 mis-stamped cards (xyp-XY124,
+  xyp-XY84, xyp-XY89 all have null prices in their cardmarket object)
+  and adds an index on `ptcg_cards(price_source)` matching the OPTCG
+  precedent.
 
 ## Pricing
 - `price` REAL, `foil_price` REAL (unused), `delta_price`/`delta_7d_price` (future), `tcg_ids` TEXT (JSON array), `price_updated_at` INTEGER, `price_source` TEXT
