@@ -2,6 +2,8 @@
 //   GET /pokemon/sets?lang=en                  list of sets in the language
 //   GET /pokemon/sets/:set_id/cards?lang=en    slim cards in that set
 
+import { rowToSlim } from './cards.js';
+
 const VALID_LANGS = new Set(['en', 'ja', 'zh-cn', 'zh-tw']);
 
 function jsonResponse(obj, status = 200) {
@@ -52,25 +54,7 @@ export function registerPokemonSetRoutes(app) {
       WHERE set_id = ? AND lang = ?
       ORDER BY local_id
     `).bind(setId, lang).all();
-    const data = (results || []).map(row => ({
-      id: row.card_id,
-      lang: row.lang,
-      set_id: row.set_id,
-      local_id: row.local_id,
-      name: row.name,
-      category: row.category,
-      rarity: row.rarity,
-      hp: row.hp,
-      retreat: row.retreat,
-      types: row.types_csv ? row.types_csv.split(',').filter(Boolean) : [],
-      stage: row.stage,
-      variants: row.variants_json ? JSON.parse(row.variants_json) : {},
-      image_high: row.image_high,
-      image_low: row.image_low,
-      pricing: row.pricing_json ? JSON.parse(row.pricing_json) : {},
-      price_source: row.price_source ?? null,
-      dominant_color: row.dominant_color,
-    }));
+    const data = (results || []).map(rowToSlim);
     return jsonResponse({ count: data.length, data });
   });
 }

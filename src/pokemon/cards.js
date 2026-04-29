@@ -25,7 +25,7 @@ function jsonResponse(obj, status = 200) {
   });
 }
 
-function rowToSlim(row) {
+export function rowToSlim(row) {
   return {
     id: row.card_id,
     lang: row.lang,
