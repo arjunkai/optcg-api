@@ -237,6 +237,16 @@ by automated runs — every script that touches `price_source` checks
   pre-SV-era sets like e-card / Legend / PMCG mostly aren't there).
 - Polite throttle: 500ms between fetches.
 
+#### 3c. malie.io PTCGO/PTCGL export — EN image gap-fill (vintage + trainer kits)
+
+- Source: public CDN at `cdn.malie.io/file/malie-io/...`. Two indexes:
+  - PTCGL (current SV/Mega era): `/tcgl/export/index.json`
+  - PTCGO archive (HGSS through SV1): `/static/cheatsheets/en_US/json/{SET}.json`
+- Image URL: `cdn.malie.io/file/malie-io/art/cards/jpg/en_US/{era}/{set}-{abbrev}/en_US-{set}-{NNN}-{slug}.jpg` (extracted from PTCGO/PTCGL game client). TCG Collector explicitly credits this source ("nago") in their About page.
+- Filled the trainer-kit subset gap (`tk-hs-g`, `tk-bw-e`, `tk-xy-w`, `tk-sm-l`, etc.), Champion's Path, Shining Fates, Crown Zenith, Detective Pikachu, Hidden Fates, Pokemon GO, Celebrations, and other special sets the static pokemontcg-data dump doesn't cover.
+- Mapping at `data/ptcg_malie_set_mapping.json` — 71 entries, hand-curated from the malie code list.
+- Script: `scripts/import-malie-en-d1.js` — COALESCE-fills `image_high` / `image_low` only.
+
 #### 4. flibustier TCG Pocket database — TCG Pocket image gap-fill
 
 - Source: git submodule of `github.com/flibustier/pokemon-tcg-pocket-database` at `data/pokemon-tcg-pocket-database/`. Covers all 19 Pocket sets (A1–B3, PROMO-A/B); we map 15 to TCGdex IDs in `data/ptcg_pocket_set_mapping.json` (the 4 unmapped — A4b, B2b, B3, PROMO-B — are newer than our last TCGdex fetch and start matching automatically once `ptcg-fetch.js` pulls them).
