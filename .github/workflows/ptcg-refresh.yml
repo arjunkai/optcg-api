@@ -1,0 +1,70 @@
+name: Weekly PTCG Refresh
+
+on:
+  schedule:
+    # Mondays 08:00 UTC. Two hours after the OPTCG scrape (06:00 UTC)
+    # so they don't contend on the same Cloudflare API quota.
+    - cron: '0 8 * * 1'
+  workflow_dispatch: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # commit submodule pointer + ptcg_cache updates
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          # Without this token the auto-commit step at the end pushes via
+          # the default GITHUB_TOKEN; keep it explicit so credential
+          # config in the runner survives a soft re-run.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Update pokemontcg-data submodule
+        run: |
+          git submodule update --remote data/pokemontcg-data
+          git status --porcelain data/pokemontcg-data
+
+      - name: Fetch TCGdex (incremental)
+        run: node scripts/ptcg-fetch.js
+
+      - name: Import TCGdex to D1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/ptcg-import-d1.js
+
+      - name: Merge pokemontcg-data (English image gap-fill)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/import-pokemontcg-d1.js
+
+      - name: Apply manual overrides
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/import-ptcg-manual-prices.js
+
+      - name: Commit submodule + cache pointer if changed
+        run: |
+          if ! git diff --quiet data/pokemontcg-data data/ptcg_cache 2>/dev/null; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git add data/pokemontcg-data data/ptcg_cache
+            git commit -m "chore: weekly ptcg refresh"
+            git push
+          else
+            echo "No submodule or cache changes — skipping commit."
+          fi
