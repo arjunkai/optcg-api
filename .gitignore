@@ -13,6 +13,7 @@ data/*
 !data/ptcg_set_mapping.unmatched.json
 !data/ptcg_pocket_set_mapping.json
 !data/ptcg_jp_set_mapping.json
+!data/ptcg_malie_set_mapping.json
 !data/ptcg_manual_prices.json
 data/don_resolution_audit.json
 .claude/
