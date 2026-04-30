@@ -1,0 +1,3 @@
+{
+  "_doc": "Hand-curated USD price overrides for Pokemon cards. Keys are card_id values matching ptcg_cards.card_id. Values are USD numbers. Wins over pokemontcg.io and Cardmarket (top of the price priority chain). Use sparingly — only for cards where automated sources are visibly wrong or for chase cards that lack any auto pricing."
+}
