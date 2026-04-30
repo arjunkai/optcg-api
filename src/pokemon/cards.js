@@ -47,6 +47,42 @@ export function rowToSlim(row) {
   };
 }
 
+// Strip pricing_json down to just the fields the frontend's pickPrice
+// reads. Used by the high-volume /index and /sets/:set_id/cards
+// endpoints — the per-card detail endpoint keeps the full object so
+// CardEnlargeModal has the full TCGplayer / Cardmarket spread.
+//
+// Keys preserved (must stay in sync with normalize/ptcg.js):
+//   - pricing.manual.price
+//   - pricing.tcgplayer.{holofoil|normal|reverseHolofoil}.market
+//   - pricing.cardmarket.{avg|trend|avg7|avg30|avg1|low}
+const TCGPLAYER_VARIANT_KEYS = ['holofoil', 'normal', 'reverseHolofoil'];
+const CARDMARKET_KEYS = ['avg', 'trend', 'avg7', 'avg30', 'avg1', 'low'];
+export function withSlimPricing(slim) {
+  const p = slim.pricing;
+  if (!p || typeof p !== 'object') return slim;
+  const pruned = {};
+  if (p.manual && typeof p.manual.price === 'number') {
+    pruned.manual = { price: p.manual.price };
+  }
+  if (p.tcgplayer && typeof p.tcgplayer === 'object') {
+    const tcg = {};
+    for (const v of TCGPLAYER_VARIANT_KEYS) {
+      const market = p.tcgplayer[v]?.market;
+      if (typeof market === 'number') tcg[v] = { market };
+    }
+    if (Object.keys(tcg).length) pruned.tcgplayer = tcg;
+  }
+  if (p.cardmarket && typeof p.cardmarket === 'object') {
+    const cm = {};
+    for (const k of CARDMARKET_KEYS) {
+      if (typeof p.cardmarket[k] === 'number') cm[k] = p.cardmarket[k];
+    }
+    if (Object.keys(cm).length) pruned.cardmarket = cm;
+  }
+  return { ...slim, pricing: pruned };
+}
+
 export function registerPokemonCardRoutes(app) {
   // Slim index. Same edge-cache pattern as OPTCG /cards/index.
   // MUST be registered BEFORE /pokemon/cards/:id.
@@ -74,7 +110,7 @@ export function registerPokemonCardRoutes(app) {
       ORDER BY set_id, local_id
     `).bind(lang).all();
 
-    const data = (results || []).map(rowToSlim);
+    const data = (results || []).map((row) => withSlimPricing(rowToSlim(row)));
     const response = jsonResponse({ count: data.length, data });
     c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()));
     return response;
@@ -112,6 +148,11 @@ export function registerPokemonCardRoutes(app) {
 
     const slim = rowToSlim(row);
     const raw = row.raw ? JSON.parse(row.raw) : {};
-    return jsonResponse({ ...slim, ...raw });
+    // raw comes from the TCGdex import and freezes pricing/images at
+    // that moment. Spread raw FIRST so slim's fresh image_high /
+    // pricing_json / price_source from D1 wins — every later backfill
+    // (pokemontcg-data, live API, manual) writes to D1 only and the
+    // raw column is never re-touched.
+    return jsonResponse({ ...raw, ...slim });
   });
 }

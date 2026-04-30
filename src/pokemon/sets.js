@@ -2,7 +2,7 @@
 //   GET /pokemon/sets?lang=en                  list of sets in the language
 //   GET /pokemon/sets/:set_id/cards?lang=en    slim cards in that set
 
-import { rowToSlim } from './cards.js';
+import { rowToSlim, withSlimPricing } from './cards.js';
 
 const VALID_LANGS = new Set(['en', 'ja', 'zh-cn', 'zh-tw']);
 
@@ -54,7 +54,7 @@ export function registerPokemonSetRoutes(app) {
       WHERE set_id = ? AND lang = ?
       ORDER BY local_id
     `).bind(setId, lang).all();
-    const data = (results || []).map(rowToSlim);
+    const data = (results || []).map((row) => withSlimPricing(rowToSlim(row)));
     return jsonResponse({ count: data.length, data });
   });
 }
