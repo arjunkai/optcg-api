@@ -11,7 +11,7 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # commit submodule pointer + ptcg_cache updates
+      contents: write   # auto-commit the pokemontcg-data submodule pointer
     steps:
       - name: Checkout (with submodules)
         uses: actions/checkout@v4
