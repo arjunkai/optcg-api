@@ -112,6 +112,19 @@ jobs:
       # cards search EBAY_US for USD; JA cards search EBAY_JP and
       # FX-convert via frankfurter.app. Stamps price_source='ebay_us'
       # or 'ebay_jp' — manual rows are protected by the WHERE clause.
+      # Yuyutei (JP retailer) layered on top of pkmnbindr's catalog —
+      # adds JP retail prices the catalog doesn't carry, plus images
+      # for sets pkmnbindr's snapshot hasn't ingested yet. Runs BEFORE
+      # eBay JP because retail prices are more stable than auction
+      # noise; Yuyutei's UPDATE clause includes 'ebay_jp' so it will
+      # supersede a prior eBay JP value if Yuyutei has the card.
+      - name: Backfill JA images + prices via Yuyutei
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m scripts.backfill_yuyutei_jp
+
       - name: Backfill EN prices via eBay (US)
         continue-on-error: true
         env:

@@ -3,5 +3,6 @@ uvicorn[standard]
 psycopg2-binary
 python-dotenv
 httpx
+beautifulsoup4
 pytest
 respx
