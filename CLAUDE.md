@@ -215,6 +215,28 @@ by automated runs — every script that touches `price_source` checks
 - Script: `scripts/fetch-pokemontcg-prices.js` — bulk-by-set, 165 requests per weekly run, rate-limited client-side at 2s intervals. Stamps `price_source = 'pokemontcg'` (preserving 'manual' rows).
 - Optional env: `POKEMONTCG_API_KEY` (read in workflow as a secret of the same name)
 
+#### 3b. pkmnbindr.com JP catalog — Japanese image gap-fill
+
+- Source: pkmnbindr.com hosts a public static JSON catalog at
+  `/data/jpNew/cards/{setCode}_ja.json` and `/data/jpNew/sets/sets.json`
+  (verified `application/json`, no auth, served via Cloudflare). Each
+  card carries a Scrydex image URL — the same Scrydex CDN that powers
+  pokemontcg.io.
+- We use pkmnbindr only as the **catalog/index** to discover Scrydex
+  card IDs; the actual image bandwidth lands on Scrydex's free public
+  CDN (`images.scrydex.com/pokemon/{setCode}_ja-{n}/{small|large}`).
+  Their JSON files total ~50MB across 160 sets — once weekly is
+  negligible load.
+- Mapping: `data/ptcg_jp_set_mapping.json` maps TCGdex JA set ids to
+  pkmnbindr ids (mostly mechanical: lowercase + `_ja` suffix). 160
+  TCGdex JA sets covered; pkmnbindr-only sets not in TCGdex are
+  ignored.
+- Script: `scripts/import-pkmnbindr-jp-d1.js` — COALESCE-fills
+  `image_high` / `image_low` only where TCGdex was null. Skips sets
+  pkmnbindr doesn't have (their per-set JSON 404s gracefully — vintage
+  pre-SV-era sets like e-card / Legend / PMCG mostly aren't there).
+- Polite throttle: 500ms between fetches.
+
 #### 4. flibustier TCG Pocket database — TCG Pocket image gap-fill
 
 - Source: git submodule of `github.com/flibustier/pokemon-tcg-pocket-database` at `data/pokemon-tcg-pocket-database/`. Covers all 19 Pocket sets (A1–B3, PROMO-A/B); we map 15 to TCGdex IDs in `data/ptcg_pocket_set_mapping.json` (the 4 unmapped — A4b, B2b, B3, PROMO-B — are newer than our last TCGdex fetch and start matching automatically once `ptcg-fetch.js` pulls them).
