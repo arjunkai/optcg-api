@@ -31,6 +31,18 @@ jobs:
       - name: Install deps
         run: npm ci
 
+      # ptcg-fetch.js is resumable — it reads existing cards-{lang}.json
+      # and only re-fetches missing cards. Without a persisted cache,
+      # every Monday would re-pull all ~23k cards from TCGdex. Cache
+      # rolls forward each run via the unique key + restore-keys prefix.
+      - name: Restore TCGdex cache
+        uses: actions/cache@v4
+        with:
+          path: data/ptcg_cache
+          key: ptcg-cache-${{ github.run_number }}
+          restore-keys: |
+            ptcg-cache-
+
       - name: Update pokemontcg-data submodule
         run: |
           git submodule update --remote data/pokemontcg-data
@@ -57,14 +69,16 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-ptcg-manual-prices.js
 
-      - name: Commit submodule + cache pointer if changed
+      # Only the submodule pointer needs to be committed back; the
+      # TCGdex cache lives in actions/cache (above) and isn't tracked.
+      - name: Commit submodule pointer if changed
         run: |
-          if ! git diff --quiet data/pokemontcg-data data/ptcg_cache 2>/dev/null; then
+          if ! git diff --quiet data/pokemontcg-data 2>/dev/null; then
             git config user.name "github-actions"
             git config user.email "github-actions@github.com"
-            git add data/pokemontcg-data data/ptcg_cache
-            git commit -m "chore: weekly ptcg refresh"
+            git add data/pokemontcg-data
+            git commit -m "chore: weekly pokemontcg-data submodule bump"
             git push
           else
-            echo "No submodule or cache changes — skipping commit."
+            echo "No submodule changes — skipping commit."
           fi
