@@ -167,17 +167,18 @@ Frontend reads:
 - `price_source` — flag identifying which source the displayed price came from
 - (others: `name`, `rarity`, `hp`, `retreat`, `types_csv`, `variants_json`, `set_id`, `local_id`, `category`, `stage`)
 
-### The 4 sources, by priority
+### The 5 sources, by priority
 
 ```
         IMAGE                       PRICE
         ──────                      ──────
 priority │ source              │ source
 ───── │ ────                   │ ────
-1     │ flibustier (planned)   │ manual override (data/ptcg_manual_prices.json)
-2     │ pokemontcg-data        │ pokemontcg.io live API (TCGplayer USD + Cardmarket EUR)
-3     │ TCGdex                 │ TCGdex (Cardmarket EUR baked in)
-4     │ none → tinted          │ none → PricePill hides
+1     │ manual (future R2)     │ manual override (data/ptcg_manual_prices.json)
+2     │ flibustier (Pocket)    │ pokemontcg.io live API (TCGplayer USD + Cardmarket EUR)
+3     │ pokemontcg-data        │ TCGdex (Cardmarket EUR baked in)
+4     │ TCGdex                 │ —
+5     │ none → tinted          │ none → PricePill hides
 ```
 
 Both chains are first-write-wins for IMAGE (COALESCE), refresh-overwrite
@@ -214,7 +215,15 @@ by automated runs — every script that touches `price_source` checks
 - Script: `scripts/fetch-pokemontcg-prices.js` — bulk-by-set, 165 requests per weekly run, rate-limited client-side at 2s intervals. Stamps `price_source = 'pokemontcg'` (preserving 'manual' rows).
 - Optional env: `POKEMONTCG_API_KEY` (read in workflow as a secret of the same name)
 
-#### 4. Manual overrides — top priority for chase cards
+#### 4. flibustier TCG Pocket database — TCG Pocket image gap-fill
+
+- Source: git submodule of `github.com/flibustier/pokemon-tcg-pocket-database` at `data/pokemon-tcg-pocket-database/`. Covers all 19 Pocket sets (A1–B3, PROMO-A/B); we map 15 to TCGdex IDs in `data/ptcg_pocket_set_mapping.json` (the 4 unmapped — A4b, B2b, B3, PROMO-B — are newer than our last TCGdex fetch and start matching automatically once `ptcg-fetch.js` pulls them).
+- Image URL pattern: `https://cdn.jsdelivr.net/gh/flibustier/pokemon-tcg-exchange@main/public/images/cards-by-set/{set}/{n}.webp` (predictable filenames in a sibling repo, served via JSDelivr).
+- **Pricing: NONE.** TCG Pocket has no secondary-market pricing yet.
+- Script: `scripts/import-tcgpocket-d1.js` — COALESCE-fills `image_high` / `image_low` only.
+- Updated weekly via `git submodule update --remote data/pokemon-tcg-pocket-database`.
+
+#### 5. Manual overrides — top priority for chase cards
 
 - File: `data/ptcg_manual_prices.json` — `{ "card_id": 99.99 }` keyed by exact `card_id`
 - Script: `scripts/import-ptcg-manual-prices.js` — JSON-patches `pricing.manual.price`, flips `price_source` to `'manual'`. Touches all language rows for that card_id.
@@ -241,8 +250,9 @@ pokemontcg-data submodule pointer if it bumped.
 
 ```bash
 # 1. Restore TCGdex disk cache (CI only — actions/cache)
-# 2. Submodule bump
+# 2. Submodule bumps
 git submodule update --remote data/pokemontcg-data
+git submodule update --remote data/pokemon-tcg-pocket-database
 
 # 3. Fetch TCGdex (incremental — only fills gaps in the disk cache)
 node scripts/ptcg-fetch.js
@@ -251,14 +261,16 @@ node scripts/ptcg-fetch.js
 #    TCGdex card; non-EN flows through this step alone)
 node scripts/ptcg-import-d1.js
 
-# 5. Image gap-fill from pokemontcg-data (COALESCE — only fills
-#    where image_high IS NULL after step 4)
+# 5. Image gap-fill from pokemontcg-data (COALESCE — main TCG)
 node scripts/import-pokemontcg-d1.js
 
-# 6. Live USD price refresh for EN main TCG
+# 6. Image gap-fill from flibustier (COALESCE — TCG Pocket only)
+node scripts/import-tcgpocket-d1.js
+
+# 7. Live USD price refresh for EN main TCG
 node scripts/fetch-pokemontcg-prices.js
 
-# 7. Manual overrides last (top priority — wins over step 6)
+# 8. Manual overrides last (top priority — wins over step 7)
 node scripts/import-ptcg-manual-prices.js
 ```
 
@@ -314,7 +326,7 @@ done
 
 ### Gaps and follow-ups
 
-- **TCG Pocket sets** (~600 EN cards across A1–B2a + PROMO-A): not in pokemontcg-data, planned via flibustier's repo. See `docs/superpowers/plans/2026-04-30-ptcg-pocket-and-coverage.md` Phase G.
+- **TCG Pocket sets** (A1–B2a + PROMO-A): shipped 2026-04-30 via flibustier submodule. EN with-image jumped 22,398 → 22,557 (97.4%). The 4 newest Pocket sets (A4b, B2b, B3, PROMO-B) start matching after the next TCGdex fetch.
 - **Recent promos** (svp-175+, mep, mfb, McDonald's 2023/2024): pokemontcg-data lags TCGdex; will catch up via weekly submodule bumps.
 - **Variant suffixes** (`cel25-2A`-style): TCGdex has the row but no image; only ~7 EN cards. Not worth automating.
 - **Non-EN coverage**: upstream-limited. No free source has multi-language data at the scale we'd need. Evaluated and skipped: JustTCG (paid), PokemonPriceTracker (paid), Yahoo Auctions/Mercari (scrape effort), pkmncards (forbidden), Bulbapedia (manual). Manual overrides remain the chase-card hatch for any language.

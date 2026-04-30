@@ -1,0 +1,18 @@
+{
+  "_doc": "Maps TCGdex Pocket set ids to flibustier/pokemon-tcg-pocket-database set ids. TCGdex's `P-A` (Promos-A) maps to flibustier's `PROMO-A`; everything else is identical id-for-id. Cards in sets listed here get their image_high COALESCE-filled from flibustier in import-tcgpocket-d1.js. flibustier sets without a TCGdex counterpart in our cache (A4b, B2b, B3, PROMO-B as of 2026-04-30) are skipped automatically — they'll start matching after the next ptcg-fetch.js pulls the new TCGdex sets.",
+  "A1": "A1",
+  "A1a": "A1a",
+  "A2": "A2",
+  "A2a": "A2a",
+  "A2b": "A2b",
+  "A3": "A3",
+  "A3a": "A3a",
+  "A3b": "A3b",
+  "A4": "A4",
+  "A4a": "A4a",
+  "B1": "B1",
+  "B1a": "B1a",
+  "B2": "B2",
+  "B2a": "B2a",
+  "P-A": "PROMO-A"
+}

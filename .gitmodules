@@ -1,3 +1,6 @@
 [submodule "data/pokemontcg-data"]
 	path = data/pokemontcg-data
 	url = https://github.com/PokemonTCG/pokemon-tcg-data
+[submodule "data/pokemon-tcg-pocket-database"]
+	path = data/pokemon-tcg-pocket-database
+	url = https://github.com/flibustier/pokemon-tcg-pocket-database

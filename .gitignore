@@ -8,8 +8,10 @@ data/*
 !data/jp_exclusives.json
 !data/don_id_lock.json
 !data/pokemontcg-data
+!data/pokemon-tcg-pocket-database
 !data/ptcg_set_mapping.json
 !data/ptcg_set_mapping.unmatched.json
+!data/ptcg_pocket_set_mapping.json
 !data/ptcg_manual_prices.json
 data/don_resolution_audit.json
 .claude/

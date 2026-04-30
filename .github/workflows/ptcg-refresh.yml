@@ -57,11 +57,22 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/ptcg-import-d1.js
 
+      - name: Update flibustier TCG Pocket submodule
+        run: |
+          git submodule update --remote data/pokemon-tcg-pocket-database
+          git status --porcelain data/pokemon-tcg-pocket-database
+
       - name: Merge pokemontcg-data (English image gap-fill)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-pokemontcg-d1.js
+
+      - name: Merge flibustier TCG Pocket images
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/import-tcgpocket-d1.js
 
       # Live api.pokemontcg.io / Scrydex pull. Only carries TCGplayer
       # prices for the main TCG (no Pocket, no recent promos), so this
@@ -84,13 +95,13 @@ jobs:
 
       # Only the submodule pointer needs to be committed back; the
       # TCGdex cache lives in actions/cache (above) and isn't tracked.
-      - name: Commit submodule pointer if changed
+      - name: Commit submodule pointers if changed
         run: |
-          if ! git diff --quiet data/pokemontcg-data 2>/dev/null; then
+          if ! git diff --quiet data/pokemontcg-data data/pokemon-tcg-pocket-database 2>/dev/null; then
             git config user.name "github-actions"
             git config user.email "github-actions@github.com"
-            git add data/pokemontcg-data
-            git commit -m "chore: weekly pokemontcg-data submodule bump"
+            git add data/pokemontcg-data data/pokemon-tcg-pocket-database
+            git commit -m "chore: weekly submodule bump (pokemontcg-data, tcg-pocket)"
             git push
           else
             echo "No submodule changes — skipping commit."
