@@ -6,6 +6,16 @@
  * a manual price is correct regardless of localization.
  *
  * Usage: node scripts/import-ptcg-manual-prices.js
+ *
+ * Rollback one card (all languages) — run after removing the entry
+ * from data/ptcg_manual_prices.json:
+ *   npx wrangler d1 execute optcg-cards --remote --command \
+ *     "UPDATE ptcg_cards SET pricing_json = json_remove(pricing_json, '\$.manual'), \
+ *      price_source = 'cardmarket' WHERE card_id = 'CARD_ID' AND price_source = 'manual'"
+ *
+ * (`price_source = 'cardmarket'` is the safe default for PTCG today; if
+ * a future live-API merge stamps 'pokemontcg' on some rows, restore the
+ * pre-override source instead of hard-coding 'cardmarket'.)
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
