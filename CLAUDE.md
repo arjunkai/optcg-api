@@ -134,8 +134,10 @@ Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPla
 `data/pokemontcg-data/` is a git submodule pointing at
 [PokemonTCG/pokemon-tcg-data](https://github.com/PokemonTCG/pokemon-tcg-data).
 Public JSON dump backing pokemontcg.io. Used as the secondary English
-data source for `ptcg_cards.image_high` and TCGplayer prices when TCGdex
-is missing data.
+**image** source when TCGdex is missing artwork. The static dump no
+longer carries TCGplayer prices (verified 0 / 20,202 cards have
+`tcgplayer.prices` as of 2026-04-29) — pricing is deferred to manual
+overrides and a possible future live-API pull.
 
 Update with:
 
@@ -144,3 +146,87 @@ Update with:
 Or `git pull --recurse-submodules` for combined repo + submodule pull.
 The submodule SHA is pinned in this repo so the import is reproducible.
 Fresh clones need `git submodule update --init` once.
+
+## PTCG data refresh pipeline
+
+PTCG card data lives in D1 table `ptcg_cards`. Three sources, ordered
+by priority (manual wins, then pokemontcg, then TCGdex). Each backfill
+writes through `wrangler d1 execute --remote` in batches of 500.
+
+### Sources
+
+1. **TCGdex (primary, multi-lang)** — `https://api.tcgdex.net`. Covers
+   English, Japanese, Chinese (Simplified + Traditional). Sparse for
+   non-English images and prices. Refreshed via:
+
+       node scripts/ptcg-fetch.js
+       node scripts/ptcg-import-d1.js
+
+2. **pokemontcg-data (English image gap-fill)** — submodule of
+   `github.com/PokemonTCG/pokemon-tcg-data`. Covers McDonald's promos
+   and other sets TCGdex misses. **Images only** — the static dump
+   doesn't carry TCGplayer prices. Refreshed via:
+
+       git submodule update --remote data/pokemontcg-data
+       node scripts/build-ptcg-set-mapping.js   # only when new sets
+       node scripts/import-pokemontcg-d1.js
+
+3. **Manual overrides** — `data/ptcg_manual_prices.json`. Hand-curated
+   USD prices, top of the priority chain. Apply via:
+
+       node scripts/import-ptcg-manual-prices.js
+
+   Removing an entry from the JSON does not unset the row in D1 — see
+   the rollback breadcrumb in the script header.
+
+### Set mapping
+
+TCGdex and pokemontcg.io use different set IDs (e.g. TCGdex `2011bw`
+= pokemontcg `mcd11`). The mapping lives in `data/ptcg_set_mapping.json`.
+Rebuild proposed mappings with `scripts/build-ptcg-set-mapping.js`,
+hand-curate any entries you can identify in
+`data/ptcg_set_mapping.unmatched.json`, then re-run the import. Re-runs
+preserve hand-curated entries (the script reads existing mapping.json
+first and only fills new gaps).
+
+Today's coverage: 165 of 208 TCGdex EN sets are mapped. The 43
+unmapped ones are TCG Pocket sets (different game), DP/HS/BW/XY/SM
+trainer kits (pokemontcg-data only carries EX-era kits), and recent
+McDonald's / MEP promo sets that pokemontcg-data hasn't ingested yet.
+Cards in unmapped sets just keep their TCGdex data — the import skips
+them.
+
+### Full refresh order
+
+```bash
+# 1. Fetch latest TCGdex data
+node scripts/ptcg-fetch.js
+node scripts/ptcg-import-d1.js
+
+# 2. Update pokemontcg-data submodule
+git submodule update --remote data/pokemontcg-data
+
+# 3. Update set mapping (only if new sets launched in either source)
+node scripts/build-ptcg-set-mapping.js
+# Hand-curate unmatched.json into the mapping if needed.
+
+# 4. Merge pokemontcg into D1 (English image gap-fill)
+node scripts/import-pokemontcg-d1.js
+
+# 5. Apply manual overrides last (top priority)
+node scripts/import-ptcg-manual-prices.js
+```
+
+### Verifying coverage
+
+```bash
+npx wrangler d1 execute optcg-cards --remote --command \
+  "SELECT lang, price_source, COUNT(*) FROM ptcg_cards GROUP BY lang, price_source"
+npx wrangler d1 execute optcg-cards --remote --command \
+  "SELECT COUNT(*) AS total, SUM(image_high IS NOT NULL) AS with_image \
+   FROM ptcg_cards WHERE lang='en'"
+```
+
+After Phase C of the 2026-04-29 ptcg-data-quality plan: EN images
+22,398 / 23,159 = 96.7% (was ~94%). EN prices unchanged from
+Cardmarket EUR baseline; manual overrides cover top chase cards.
