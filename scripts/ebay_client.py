@@ -182,11 +182,18 @@ class EbayClient:
         limit: int = 50,
         category_ids: str | None = None,
         max_retries: int = 4,
+        marketplace_id: str = "EBAY_US",
     ) -> list[dict]:
         """Search the Browse API. Returns a list of item_summary dicts.
 
         Retries on 429 with exponential backoff (1s, 2s, 4s, 8s). Raises
         RuntimeError if eBay keeps rate-limiting us past `max_retries`.
+
+        marketplace_id selects which eBay regional site to search.
+        Common values: EBAY_US (default, USD), EBAY_JP (Japan, JPY),
+        EBAY_GB, EBAY_DE, EBAY_FR. Listings prices are returned in the
+        marketplace's native currency — the caller is responsible for
+        FX conversion if it needs USD.
         """
         token = self.get_token()
         params = {"q": query, "limit": str(limit)}
@@ -194,7 +201,7 @@ class EbayClient:
             params["category_ids"] = category_ids
         headers = {
             "Authorization": f"Bearer {token}",
-            "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+            "X-EBAY-C-MARKETPLACE-ID": marketplace_id,
         }
 
         for attempt in range(max_retries):

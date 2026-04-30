@@ -99,6 +99,37 @@ jobs:
           POKEMONTCG_API_KEY: ${{ secrets.POKEMONTCG_API_KEY }}
         run: node scripts/fetch-pokemontcg-prices.js
 
+      - name: Setup Python (for eBay backfill)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      # eBay backfill is the LAST price source. Runs after manual,
+      # pokemontcg, and cardmarket so it only fills genuine gaps. EN
+      # cards search EBAY_US for USD; JA cards search EBAY_JP and
+      # FX-convert via frankfurter.app. Stamps price_source='ebay_us'
+      # or 'ebay_jp' — manual rows are protected by the WHERE clause.
+      - name: Backfill EN prices via eBay (US)
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          EBAY_APP_ID: ${{ secrets.EBAY_APP_ID }}
+          EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
+        run: python -m scripts.backfill_ptcg_prices_ebay --lang=en
+
+      - name: Backfill JA prices via eBay (JP)
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          EBAY_APP_ID: ${{ secrets.EBAY_APP_ID }}
+          EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
+        run: python -m scripts.backfill_ptcg_prices_ebay --lang=ja
+
       - name: Apply manual overrides
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
