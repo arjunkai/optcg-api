@@ -63,6 +63,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-pokemontcg-d1.js
 
+      # Live api.pokemontcg.io / Scrydex pull. Only carries TCGplayer
+      # prices for the main TCG (no Pocket, no recent promos), so this
+      # step refreshes USD prices for the ~17k cards in mapped sets
+      # without disturbing manual or non-EN rows. Optional API key in
+      # POKEMONTCG_API_KEY lifts the rate limit; current 165 req/run
+      # fits comfortably under the 1k/day no-key cap.
+      - name: Fetch live pokemontcg.io prices (USD)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          POKEMONTCG_API_KEY: ${{ secrets.POKEMONTCG_API_KEY }}
+        run: node scripts/fetch-pokemontcg-prices.js
+
       - name: Apply manual overrides
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

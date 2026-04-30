@@ -171,7 +171,16 @@ writes through `wrangler d1 execute --remote` in batches of 500.
        node scripts/build-ptcg-set-mapping.js   # only when new sets
        node scripts/import-pokemontcg-d1.js
 
-3. **Manual overrides** — `data/ptcg_manual_prices.json`. Hand-curated
+3. **Live `api.pokemontcg.io` (Scrydex)** — REST API, scoped to the
+   165 mapped sets. Carries fresh TCGplayer USD + Cardmarket EUR
+   prices the static dump abandoned. Free tier 1k/day, 30/min;
+   API key (free signup) lifts to 20k/day. Stamps `price_source =
+   'pokemontcg'`. Refreshed via:
+
+       node scripts/fetch-pokemontcg-prices.js
+       # optional env: POKEMONTCG_API_KEY=...
+
+4. **Manual overrides** — `data/ptcg_manual_prices.json`. Hand-curated
    USD prices, top of the priority chain. Apply via:
 
        node scripts/import-ptcg-manual-prices.js
@@ -213,7 +222,10 @@ node scripts/build-ptcg-set-mapping.js
 # 4. Merge pokemontcg into D1 (English image gap-fill)
 node scripts/import-pokemontcg-d1.js
 
-# 5. Apply manual overrides last (top priority)
+# 5. Pull live TCGplayer USD prices for English main TCG
+node scripts/fetch-pokemontcg-prices.js
+
+# 6. Apply manual overrides last (top priority)
 node scripts/import-ptcg-manual-prices.js
 ```
 
