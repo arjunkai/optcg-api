@@ -225,7 +225,13 @@ def query_existing_card_ids() -> set[tuple[str, str]]:
 
 
 def build_set_insert(tcgdex_set: str, pkm_set: dict) -> str:
-    name = pkm_set.get("name") or tcgdex_set
+    # Prefer pkmnbindr's English translation for set names so the
+    # filter UI (which renders these labels) shows English consistently
+    # across both langs. pkmnbindr embeds translation.en.name on most
+    # SV-era and modern sets; vintage sets fall back to the native
+    # (Japanese) name.
+    en_name = (pkm_set.get("translation") or {}).get("en", {}).get("name")
+    name = en_name or pkm_set.get("name") or tcgdex_set
     series = pkm_set.get("series") or ""
     release_date = pkm_set.get("release_date") or ""
     total = pkm_set.get("total")
@@ -258,7 +264,12 @@ def build_card_row(c: dict, tcgdex_set: str) -> dict | None:
     subtypes = c.get("subtypes") or []
     stage = STAGE_MAP.get(subtypes[0], subtypes[0]) if subtypes else None
 
-    types = c.get("types") or []
+    # Use the English translation of types so the AddCardsModal type
+    # filter pills (POKEMON_TYPES, English) match JA rows. pkmnbindr
+    # embeds translation.en.types per card. Falls back to native types
+    # if the translation block is missing.
+    en_types = (c.get("translation") or {}).get("en", {}).get("types") or []
+    types = en_types or c.get("types") or []
     types_csv = ",".join(types) if types else None
 
     hp_raw = c.get("hp")
