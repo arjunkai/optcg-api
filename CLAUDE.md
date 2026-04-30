@@ -147,98 +147,183 @@ Or `git pull --recurse-submodules` for combined repo + submodule pull.
 The submodule SHA is pinned in this repo so the import is reproducible.
 Fresh clones need `git submodule update --init` once.
 
-## PTCG data refresh pipeline
+## PTCG data pipeline — single source of truth
 
-PTCG card data lives in D1 table `ptcg_cards`. Three sources, ordered
-by priority (manual wins, then pokemontcg, then TCGdex). Each backfill
-writes through `wrangler d1 execute --remote` in batches of 500.
+This section is the authoritative reference for what data we pull, from
+where, when, and what we do with it. The weekly `ptcg-refresh` workflow
+runs everything below in order. Frontend reads `image_high`, `image_low`,
+and `pricing_json` straight from D1 via the `/pokemon/cards/index` slim
+endpoint.
 
-### Sources
+### Data home
 
-1. **TCGdex (primary, multi-lang)** — `https://api.tcgdex.net`. Covers
-   English, Japanese, Chinese (Simplified + Traditional). Sparse for
-   non-English images and prices. Refreshed via:
+D1 table `ptcg_cards`. Composite primary key `(card_id, lang)`. One row
+per card per language. ~37k rows total: EN 23,159 / JA 5,935 / zh-cn 829
+/ zh-tw 7,363.
 
-       node scripts/ptcg-fetch.js
-       node scripts/ptcg-import-d1.js
+Frontend reads:
+- `image_high` / `image_low` — wsrv.nl proxy URLs in front of these
+- `pricing_json` — JSON object, sub-keyed by source (`manual`, `tcgplayer`, `cardmarket`)
+- `price_source` — flag identifying which source the displayed price came from
+- (others: `name`, `rarity`, `hp`, `retreat`, `types_csv`, `variants_json`, `set_id`, `local_id`, `category`, `stage`)
 
-2. **pokemontcg-data (English image gap-fill)** — submodule of
-   `github.com/PokemonTCG/pokemon-tcg-data`. Covers McDonald's promos
-   and other sets TCGdex misses. **Images only** — the static dump
-   doesn't carry TCGplayer prices. Refreshed via:
+### The 4 sources, by priority
 
-       git submodule update --remote data/pokemontcg-data
-       node scripts/build-ptcg-set-mapping.js   # only when new sets
-       node scripts/import-pokemontcg-d1.js
+```
+        IMAGE                       PRICE
+        ──────                      ──────
+priority │ source              │ source
+───── │ ────                   │ ────
+1     │ flibustier (planned)   │ manual override (data/ptcg_manual_prices.json)
+2     │ pokemontcg-data        │ pokemontcg.io live API (TCGplayer USD + Cardmarket EUR)
+3     │ TCGdex                 │ TCGdex (Cardmarket EUR baked in)
+4     │ none → tinted          │ none → PricePill hides
+```
 
-3. **Live `api.pokemontcg.io` (Scrydex)** — REST API, scoped to the
-   165 mapped sets. Carries fresh TCGplayer USD + Cardmarket EUR
-   prices the static dump abandoned. Free tier 1k/day, 30/min;
-   API key (free signup) lifts to 20k/day. Stamps `price_source =
-   'pokemontcg'`. Refreshed via:
+Both chains are first-write-wins for IMAGE (COALESCE), refresh-overwrite
+for PRICE (live data has to roll). Manual overrides can never be stomped
+by automated runs — every script that touches `price_source` checks
+`CASE WHEN price_source = 'manual' THEN 'manual' ELSE …`.
 
-       node scripts/fetch-pokemontcg-prices.js
-       # optional env: POKEMONTCG_API_KEY=...
+#### 1. TCGdex — primary, multi-lang
 
-4. **Manual overrides** — `data/ptcg_manual_prices.json`. Hand-curated
-   USD prices, top of the priority chain. Apply via:
+- Endpoint: `https://api.tcgdex.net`
+- Covers EN / JA / zh-cn / zh-tw
+- Auth: none, no rate limit documented (we cap concurrency at 8)
+- Image URL pattern: `https://assets.tcgdex.net/{lang}/{series}/{set}/{localId}/{quality}.{ext}`
+- Pricing: Cardmarket EUR (`pricing.cardmarket.avg/trend/avg7/...`)
+- **Sparseness**: EN 94% images / 81% prices baseline, JA 53% / 28%, zh-cn 0% images / 27% prices, zh-tw 28% / 15%. Upstream limitation, not ours.
+- Script: `scripts/ptcg-fetch.js` (resumable disk cache at `data/ptcg_cache/`) → `scripts/ptcg-import-d1.js` (UPSERT into ptcg_cards)
+- The TCGdex cache is what makes `ptcg-fetch.js` fast on re-run; in CI it's persisted via `actions/cache@v4` (see workflow)
 
-       node scripts/import-ptcg-manual-prices.js
+#### 2. pokemontcg-data — English image gap-fill
 
-   Removing an entry from the JSON does not unset the row in D1 — see
-   the rollback breadcrumb in the script header.
+- Source: git submodule of `github.com/PokemonTCG/pokemon-tcg-data` at `data/pokemontcg-data/`
+- Covers EN only (sets/en.json, cards/en/{setId}.json)
+- Image URL: `https://images.pokemontcg.io/{setId}/{number}_hires.png`
+- **Pricing: NONE.** Verified 0 / 20,202 cards have `tcgplayer.prices` in the static dump. The dump dropped pricing fields some time after 2019; only the live API has them now.
+- Script: `scripts/import-pokemontcg-d1.js` — COALESCE-fills `image_high` / `image_low` for cards in mapped sets where TCGdex has no image
+- Updated weekly via `git submodule update --remote data/pokemontcg-data`
 
-### Set mapping
+#### 3. Live `api.pokemontcg.io` (Scrydex) — English prices
 
-TCGdex and pokemontcg.io use different set IDs (e.g. TCGdex `2011bw`
-= pokemontcg `mcd11`). The mapping lives in `data/ptcg_set_mapping.json`.
-Rebuild proposed mappings with `scripts/build-ptcg-set-mapping.js`,
-hand-curate any entries you can identify in
-`data/ptcg_set_mapping.unmatched.json`, then re-run the import. Re-runs
-preserve hand-curated entries (the script reads existing mapping.json
-first and only fills new gaps).
+- Endpoint: `https://api.pokemontcg.io/v2/cards?q=set.id:{X}&pageSize=250&select=id,tcgplayer,cardmarket`
+- Covers EN main TCG (no TCG Pocket, no very recent promos like svp-175+ / mep / mfb)
+- Auth: optional `X-Api-Key` header. Free tier: 1,000 req/day, 30/min. With key: 20,000/day. Free signup at the docs site.
+- Returns: `tcgplayer.prices.{normal|holofoil|reverseHolofoil|...}.{low,mid,high,market}` USD + `cardmarket.prices.*` EUR
+- Script: `scripts/fetch-pokemontcg-prices.js` — bulk-by-set, 165 requests per weekly run, rate-limited client-side at 2s intervals. Stamps `price_source = 'pokemontcg'` (preserving 'manual' rows).
+- Optional env: `POKEMONTCG_API_KEY` (read in workflow as a secret of the same name)
 
-Today's coverage: 165 of 208 TCGdex EN sets are mapped. The 43
-unmapped ones are TCG Pocket sets (different game), DP/HS/BW/XY/SM
-trainer kits (pokemontcg-data only carries EX-era kits), and recent
-McDonald's / MEP promo sets that pokemontcg-data hasn't ingested yet.
-Cards in unmapped sets just keep their TCGdex data — the import skips
-them.
+#### 4. Manual overrides — top priority for chase cards
 
-### Full refresh order
+- File: `data/ptcg_manual_prices.json` — `{ "card_id": 99.99 }` keyed by exact `card_id`
+- Script: `scripts/import-ptcg-manual-prices.js` — JSON-patches `pricing.manual.price`, flips `price_source` to `'manual'`. Touches all language rows for that card_id.
+- Removing an entry from the JSON does NOT unset D1 — there's a wrangler-command rollback breadcrumb in the script header.
+
+### Set mapping (TCGdex ↔ pokemontcg.io)
+
+TCGdex and pokemontcg.io use different set IDs in many cases (e.g.
+TCGdex `2011bw` = pokemontcg `mcd11`). The mapping lives in
+`data/ptcg_set_mapping.json` and feeds both `import-pokemontcg-d1.js`
+and `fetch-pokemontcg-prices.js`.
+
+- Builder: `scripts/build-ptcg-set-mapping.js`. Three passes: identical IDs → exact normalized-name+year → name+year ±1.
+- Re-runs preserve hand-curated entries (existing mapping wins).
+- Output also lists everything the algorithm couldn't match into `data/ptcg_set_mapping.unmatched.json`.
+- **Today's mapping: 165 of 208 TCGdex EN sets covered.** The 43 unmapped ones are TCG Pocket sets (different game; pokemontcg-data scope is main TCG only), DP/HS/BW/XY/SM trainer kits, and recent McDonald's/MEP/promo sets that pokemontcg-data hasn't ingested yet. Cards in unmapped sets keep their TCGdex data — the imports skip them.
+
+### Weekly refresh order
+
+`.github/workflows/ptcg-refresh.yml` — runs Mondays 08:00 UTC (offset
+2h from the OPTCG `scrape.yml` to avoid Cloudflare API contention).
+TCGdex cache persisted via `actions/cache@v4`. Auto-commits the
+pokemontcg-data submodule pointer if it bumped.
 
 ```bash
-# 1. Fetch latest TCGdex data
-node scripts/ptcg-fetch.js
-node scripts/ptcg-import-d1.js
-
-# 2. Update pokemontcg-data submodule
+# 1. Restore TCGdex disk cache (CI only — actions/cache)
+# 2. Submodule bump
 git submodule update --remote data/pokemontcg-data
 
-# 3. Update set mapping (only if new sets launched in either source)
-node scripts/build-ptcg-set-mapping.js
-# Hand-curate unmatched.json into the mapping if needed.
+# 3. Fetch TCGdex (incremental — only fills gaps in the disk cache)
+node scripts/ptcg-fetch.js
 
-# 4. Merge pokemontcg into D1 (English image gap-fill)
+# 4. UPSERT TCGdex data into D1 (writes images/prices for every
+#    TCGdex card; non-EN flows through this step alone)
+node scripts/ptcg-import-d1.js
+
+# 5. Image gap-fill from pokemontcg-data (COALESCE — only fills
+#    where image_high IS NULL after step 4)
 node scripts/import-pokemontcg-d1.js
 
-# 5. Pull live TCGplayer USD prices for English main TCG
+# 6. Live USD price refresh for EN main TCG
 node scripts/fetch-pokemontcg-prices.js
 
-# 6. Apply manual overrides last (top priority)
+# 7. Manual overrides last (top priority — wins over step 6)
 node scripts/import-ptcg-manual-prices.js
 ```
 
+The order matters: pokemontcg overlays TCGdex; manual overrides win
+over both. Run set-mapping rebuild only when a TCGdex or pokemontcg
+release adds a new set we don't recognize.
+
 ### Verifying coverage
 
+Run these any time to see the live state:
+
 ```bash
+# Per-language total + image + price coverage
 npx wrangler d1 execute optcg-cards --remote --command \
-  "SELECT lang, price_source, COUNT(*) FROM ptcg_cards GROUP BY lang, price_source"
+  "SELECT lang, COUNT(*) AS total,
+   SUM(CASE WHEN image_high IS NOT NULL THEN 1 ELSE 0 END) AS with_image,
+   SUM(CASE WHEN price_source IS NOT NULL THEN 1 ELSE 0 END) AS with_price
+   FROM ptcg_cards GROUP BY lang ORDER BY lang"
+
+# Price source breakdown for English
 npx wrangler d1 execute optcg-cards --remote --command \
-  "SELECT COUNT(*) AS total, SUM(image_high IS NOT NULL) AS with_image \
-   FROM ptcg_cards WHERE lang='en'"
+  "SELECT price_source, COUNT(*) FROM ptcg_cards
+   WHERE lang='en' GROUP BY price_source"
+
+# Image host breakdown for English
+npx wrangler d1 execute optcg-cards --remote --command \
+  "SELECT CASE
+     WHEN image_high LIKE '%pokemontcg%' THEN 'pokemontcg'
+     WHEN image_high LIKE '%tcgdex%' THEN 'tcgdex'
+     WHEN image_high IS NULL THEN 'null'
+     ELSE 'other' END AS host, COUNT(*) AS n
+   FROM ptcg_cards WHERE lang='en' GROUP BY host"
 ```
 
-After Phase C of the 2026-04-29 ptcg-data-quality plan: EN images
-22,398 / 23,159 = 96.7% (was ~94%). EN prices unchanged from
-Cardmarket EUR baseline; manual overrides cover top chase cards.
+After every refresh, also bust the Worker edge cache:
+
+```bash
+for lang in en ja zh-cn zh-tw; do
+  curl -s -o /dev/null -w "$lang: %{http_code}\n" \
+    -H "Origin: http://localhost:5173" \
+    "https://optcg-api.arjunbansal-ai.workers.dev/pokemon/cards/index?lang=$lang&refresh=1"
+done
+```
+
+### Coverage today (2026-04-30)
+
+| Lang | Image | Price |
+|---|---|---|
+| EN | 22,398 / 23,159 = **96.7%** | 20,125 / 23,159 = **86.9%** (19,069 USD via live API + 1,056 EUR Cardmarket) |
+| JA | 3,194 / 5,935 = 53.8% | 1,689 / 5,935 = 28.5% (Cardmarket EUR) |
+| zh-cn | 0 / 829 = 0% | 224 / 829 = 27.0% |
+| zh-tw | 2,126 / 7,363 = 28.9% | 1,121 / 7,363 = 15.2% |
+
+### Gaps and follow-ups
+
+- **TCG Pocket sets** (~600 EN cards across A1–B2a + PROMO-A): not in pokemontcg-data, planned via flibustier's repo. See `docs/superpowers/plans/2026-04-30-ptcg-pocket-and-coverage.md` Phase G.
+- **Recent promos** (svp-175+, mep, mfb, McDonald's 2023/2024): pokemontcg-data lags TCGdex; will catch up via weekly submodule bumps.
+- **Variant suffixes** (`cel25-2A`-style): TCGdex has the row but no image; only ~7 EN cards. Not worth automating.
+- **Non-EN coverage**: upstream-limited. No free source has multi-language data at the scale we'd need. Evaluated and skipped: JustTCG (paid), PokemonPriceTracker (paid), Yahoo Auctions/Mercari (scrape effort), pkmncards (forbidden), Bulbapedia (manual). Manual overrides remain the chase-card hatch for any language.
+- **Trainer Kit subsets** (`tk-xy-*` etc.): TCGdex breaks them out per-character; pokemontcg-data only has the EX-era kits as `tk1a`/`tk2a`. Mapping isn't 1:1, leaving as-is.
+
+### How to add a new data source
+
+1. Decide where it sits in the priority chain (manual / pokemontcg / TCGdex / new tier).
+2. Add a new `price_source` enum value or reuse an existing one. Update the B.3 normalizer in `opbindr/src/lib/normalize/ptcg.js` (`pickPrice`) so the new flag is consumed.
+3. Write a fetcher script following the pattern in `scripts/fetch-pokemontcg-prices.js` (rate limit, batch, idempotent UPDATEs, `CASE WHEN price_source = 'manual'` guard).
+4. Wire it into `.github/workflows/ptcg-refresh.yml` between the existing steps; manual overrides always run last.
+5. Document the source in this section.
