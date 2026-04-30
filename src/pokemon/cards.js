@@ -71,6 +71,9 @@ export function withSlimPricing(slim) {
       const market = p.tcgplayer[v]?.market;
       if (typeof market === 'number') tcg[v] = { market };
     }
+    // Keep the marketplace URL alongside prices so the frontend can
+    // build a TCGplayer-affiliate buy button without a second fetch.
+    if (typeof p.tcgplayer.url === 'string') tcg.url = p.tcgplayer.url;
     if (Object.keys(tcg).length) pruned.tcgplayer = tcg;
   }
   if (p.cardmarket && typeof p.cardmarket === 'object') {
@@ -78,6 +81,7 @@ export function withSlimPricing(slim) {
     for (const k of CARDMARKET_KEYS) {
       if (typeof p.cardmarket[k] === 'number') cm[k] = p.cardmarket[k];
     }
+    if (typeof p.cardmarket.url === 'string') cm.url = p.cardmarket.url;
     if (Object.keys(cm).length) pruned.cardmarket = cm;
   }
   return { ...slim, pricing: pruned };
