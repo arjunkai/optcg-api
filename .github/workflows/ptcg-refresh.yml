@@ -80,6 +80,29 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-pkmnbindr-jp-d1.js
 
+      # Bulk-INSERT JA cards that exist in pkmnbindr's 211-set catalog
+      # but TCGdex doesn't carry. Idempotent via INSERT OR IGNORE — only
+      # adds genuinely new rows on re-runs (initial run added ~19,547
+      # cards on top of TCGdex's 5,935; subsequent weeks should add a
+      # handful as new sets release).
+      - name: Bulk-import pkmnbindr JP catalog (new card rows)
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m scripts.import_pkmnbindr_jp_catalog
+
+      # pkmnbindr uses legacy IDs (ECARD1, BASE1, GYM1) for vintage JA
+      # sets while TCGdex uses (E1, PMCG1, PMCG5). This script does the
+      # explicit ID + zero-padding mapping so images land on the canonical
+      # TCGdex rows instead of duplicate pkmnbindr-keyed rows.
+      - name: Backfill JA vintage images (E1-E5 / PMCG1-PMCG6)
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m scripts.backfill_pkmnbindr_vintage_jp
+
       - name: Merge malie.io EN images (PTCGO/PTCGL game-client export)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -142,6 +165,29 @@ jobs:
           EBAY_APP_ID: ${{ secrets.EBAY_APP_ID }}
           EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
         run: python -m scripts.backfill_ptcg_prices_ebay --lang=ja
+
+      # Last-resort image source for cards no other catalog covers (mep,
+      # mfb, exu, tk-*, recent McDonald's promos). Requires ≥2 listings
+      # sharing the same image URL — that's the floor for confidence
+      # the URL points at the right card. Quality is lower than dedicated
+      # scan sources but better than tinted placeholders for residuals.
+      - name: Backfill EN images via eBay (US)
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          EBAY_APP_ID: ${{ secrets.EBAY_APP_ID }}
+          EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
+        run: python -m scripts.backfill_ptcg_images_ebay --lang=en
+
+      - name: Backfill JA images via eBay (JP)
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          EBAY_APP_ID: ${{ secrets.EBAY_APP_ID }}
+          EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
+        run: python -m scripts.backfill_ptcg_images_ebay --lang=ja
 
       - name: Apply manual overrides
         env:
