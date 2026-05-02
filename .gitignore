@@ -25,3 +25,4 @@ node_modules/
 .dev.vars
 docs/superpowers/
 data/.ebay_token.json
+graphify-out/

@@ -46,6 +46,8 @@ from pathlib import Path
 from statistics import median as stat_median
 from typing import Iterable
 
+import httpx
+
 from scripts.ebay_client import EbayClient, apply_title_filters, consensus_price
 
 
@@ -162,11 +164,12 @@ def query_unpriced_cards(lang: str) -> list[dict]:
     out = subprocess.run(
         WRANGLER_BIN + ["--remote", "--json", "--command", sql],
         capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
     )
     if out.returncode != 0:
-        print("wrangler query failed:", out.stderr[:500])
+        print("wrangler query failed:", (out.stderr or "")[:500])
         sys.exit(1)
-    payload_start = out.stdout.find("[")
+    payload_start = (out.stdout or "").find("[")
     if payload_start < 0:
         return []
     payload = json.loads(out.stdout[payload_start:])
@@ -183,7 +186,7 @@ def price_card(client: EbayClient, card: dict, lang: str, marketplace: str,
             marketplace_id=marketplace,
             category_ids=EBAY_CATEGORY_POKEMON if marketplace == "EBAY_US" else None,
         )
-    except RuntimeError as exc:
+    except (RuntimeError, httpx.HTTPError) as exc:
         print(f"  [skip] {card['card_id']}: {exc}")
         return None
     filtered = apply_title_filters(items, blocklist=POKEMON_TITLE_BLOCKLIST)

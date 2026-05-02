@@ -45,6 +45,8 @@ import time
 from collections import Counter
 from pathlib import Path
 
+import httpx
+
 from scripts.ebay_client import EbayClient, apply_title_filters
 
 
@@ -139,11 +141,12 @@ def query_imageless_cards(lang: str) -> list[dict]:
     out = subprocess.run(
         WRANGLER_BIN + ["--remote", "--json", "--command", sql],
         capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
     )
     if out.returncode != 0:
-        print("D1 query failed:", out.stderr[:500])
+        print("D1 query failed:", (out.stderr or "")[:500])
         sys.exit(1)
-    start = out.stdout.find("[")
+    start = (out.stdout or "").find("[")
     if start < 0:
         return []
     try:
@@ -163,7 +166,7 @@ def find_image(client: EbayClient, card: dict, lang: str, marketplace: str,
             marketplace_id=marketplace,
             category_ids=EBAY_CATEGORY_POKEMON if marketplace == "EBAY_US" else None,
         )
-    except RuntimeError as exc:
+    except (RuntimeError, httpx.HTTPError) as exc:
         print(f"  [skip] {card['card_id']}: {exc}")
         return None
     filtered = apply_title_filters(items, blocklist=POKEMON_TITLE_BLOCKLIST)
