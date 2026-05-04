@@ -90,10 +90,17 @@ def main() -> None:
                     help="Cap the number of cards queried (smoke tests)")
     ap.add_argument("--min-count", type=int, default=5,
                     help="Min listings required for consensus (default: 5)")
+    ap.add_argument("--shuffle", action="store_true",
+                    help="Randomize card order before --limit. Recommended for "
+                         "smoke tests so the sample isn't biased toward the "
+                         "alphabetically-first cohort (vintage ADV1/ADV3 etc).")
     args = ap.parse_args()
 
     print(f"1. Querying D1 for {args.lang} cards without price...")
     cards = query_unpriced_cards(args.lang)
+    if args.shuffle:
+        import random
+        random.shuffle(cards)
     if args.limit:
         cards = cards[:args.limit]
     print(f"   {len(cards)} cards in scope\n")
@@ -101,34 +108,73 @@ def main() -> None:
         print("Nothing to backfill. Exiting.")
         return
 
-    print("2. Initializing eBay client + FX rate...")
+    print("2. Initializing eBay client...")
     client = EbayClient()
     client.get_token()
-    fx_jpy_to_usd = get_jpy_to_usd_rate() if args.lang == "ja" else 1.0
+    # 2026-05-04: Browse API rejects EBAY_JP marketplace_id with HTTP 409,
+    # so JA cards have to be priced from EBAY_US listings (US sellers
+    # routinely relist JA cards). Cards keep the price_source='ebay_jp'
+    # tag because the card itself is JA — only the marketplace was US.
+    # Avoiding the buggy generic-noise issue requires:
+    #   1. JP→EN name translation in the query (sellers write English titles)
+    #   2. Strict per-listing post-filter requiring name + card number
+    #      + 'japanese'/'japan' in the title (rejects unrelated noise)
+    #   3. Script-level sanity gate that aborts if multiple cards return
+    #      identical medians (smoking gun for matched-noise mode)
+    fx_jpy_to_usd = 1.0  # always USD (no JPY since EBAY_JP isn't supported)
+    marketplace = "EBAY_US"
+    target_currency = "USD"
+    print(f"   Marketplace: {marketplace}, target currency: {target_currency}")
     if args.lang == "ja":
-        print(f"   FX rate: 1 JPY = {fx_jpy_to_usd:.6f} USD")
-
-    marketplace = "EBAY_US" if args.lang == "en" else "EBAY_JP"
-    target_currency = "USD" if marketplace == "EBAY_US" else "JPY"
-    print(f"   Marketplace: {marketplace}, target currency: {target_currency}\n")
+        print(f"   (JA cards searched on EBAY_US with 'japanese' keyword + strict per-listing filter)")
+    print()
 
     print("3. Pricing cards via eBay...")
     matches: list[dict] = []
     for i, card in enumerate(cards, start=1):
         result = price_card(client, card, args.lang, marketplace, target_currency,
-                            fx_jpy_to_usd, min_count=args.min_count)
+                            fx_jpy_to_usd, min_count=args.min_count,
+                            verbose_skip=(args.dry_run and len(cards) <= 100))
         if result:
             matches.append(result)
             print(f"   [{i}/{len(cards)}] {card['card_id']}: ${result['price_usd']} "
-                  f"(n={result['sample_size']}, src={result['price_source']})")
+                  f"(n={result['sample_size']}, src={result['price_source']})", flush=True)
         else:
-            print(f"   [{i}/{len(cards)}] {card['card_id']}: no consensus")
+            print(f"   [{i}/{len(cards)}] {card['card_id']}: no consensus", flush=True)
         time.sleep(0.25)  # well under eBay's per-app rate limit
     print(f"\n   {len(matches)} cards priced via eBay\n")
 
     if not matches:
         print("No prices found. Nothing to write.")
         return
+
+    # Sanity gate — catches the "$7.47 on every card" failure mode.
+    # Real Pokemon card prices have natural variance across different cards
+    # in the same batch. If 5+ cards in our sample return medians within
+    # $0.50 of each other, the matcher is in noise mode (matching all
+    # cards to the same generic listing pool).
+    if len(matches) >= 5:
+        from statistics import stdev
+        usd_vals = [m["price_usd"] for m in matches]
+        spread = stdev(usd_vals)
+        # Also check: distinct-value count. Even if stdev is high, if 80%
+        # of cards return EXACTLY the same value, that's noise.
+        from collections import Counter
+        most_common_count = Counter(usd_vals).most_common(1)[0][1]
+        max_concentration = most_common_count / len(usd_vals)
+        if spread < 0.5 or max_concentration > 0.5:
+            print(f"!!! SANITY GATE TRIPPED — REFUSING TO WRITE !!!")
+            print(f"    matches:               {len(matches)}")
+            print(f"    median price stdev:    ${spread:.2f} (need ≥ $0.50)")
+            print(f"    most-common-value pct: {max_concentration*100:.0f}% (need ≤ 50%)")
+            print(f"    Likely cause: card-identity post-filter failed; eBay returned")
+            print(f"    generic noise that passed our relevance check. Inspect")
+            print(f"    spotcheck_samples in {OUT_DIR}/ebay_ptcg_{args.lang}_matches.json")
+            print(f"    before deciding whether to refine the filter or rerun.")
+            matches_file = OUT_DIR / f"ebay_ptcg_{args.lang}_matches.json"
+            matches_file.write_text(json.dumps(matches, indent=2, ensure_ascii=False), encoding="utf-8")
+            print(f"    matches dumped to: {matches_file}")
+            sys.exit(2)
 
     sql_lines = build_update_sql(matches)
     sql_file = OUT_DIR / f"ebay_ptcg_{args.lang}.sql"
@@ -177,24 +223,141 @@ def query_unpriced_cards(lang: str) -> list[dict]:
     return rows or []
 
 
+_JP_EN_CACHE: dict | None = None
+_CARD_ID_EN_CACHE: dict | None = None
+
+
+def _load_jp_en_maps() -> tuple[dict, dict]:
+    """Lazy-load JP species map + card_id→EN canonical name overrides."""
+    global _JP_EN_CACHE, _CARD_ID_EN_CACHE
+    if _JP_EN_CACHE is None:
+        try:
+            _JP_EN_CACHE = json.loads(
+                Path("data/jp_to_en_pokemon.json").read_text(encoding="utf-8")
+            )
+        except Exception:
+            _JP_EN_CACHE = {}
+    if _CARD_ID_EN_CACHE is None:
+        try:
+            _CARD_ID_EN_CACHE = json.loads(
+                Path("data/ja_card_id_to_en_name.json").read_text(encoding="utf-8")
+            )
+        except Exception:
+            _CARD_ID_EN_CACHE = {}
+    return _JP_EN_CACHE, _CARD_ID_EN_CACHE
+
+
+def _to_en_name(card: dict) -> str | None:
+    """For a JA card, return the best English-name guess for eBay search.
+    Returns None if we can't translate — caller skips the card rather than
+    submitting a query that would match generic noise.
+    Priority: card_id-keyed canonical override → JP-species-name lookup."""
+    jp_en, cid_en = _load_jp_en_maps()
+    cid = card.get("card_id") or ""
+    if cid in cid_en and cid_en[cid]:
+        return cid_en[cid]
+    jp_name = (card.get("name") or "").strip()
+    base = re.split(r"[(（\s]", jp_name)[0]
+    if base in jp_en:
+        return jp_en[base]
+    return None
+
+
+# Acceptable forms of a card number in eBay listing titles. Sellers
+# write the local_id in many ways: "025/126", "25/126", " 25 ", "#25",
+# "No. 25", "125/126" (no slash). The list is matched case-insensitive
+# against the title text.
+def _number_forms(local_id: str) -> list[str]:
+    if not local_id: return []
+    lid = local_id.strip()
+    no_zero = lid.lstrip("0") or lid
+    forms = {
+        f"{lid}/", f"{no_zero}/",          # "025/" or "25/"
+        f" {lid} ", f" {no_zero} ",         # " 025 " or " 25 "
+        f"#{lid}", f"#{no_zero}",            # "#025" or "#25"
+        f"no. {no_zero}", f"no.{no_zero}",   # "No. 25"
+    }
+    return list(forms)
+
+
+def is_relevant_listing(title: str, en_name: str, local_id: str) -> bool:
+    """Per-listing relevance filter. Rejects generic noise that the eBay
+    search returns when the card-specific query couldn't disambiguate.
+    Requires:
+      - EN name appears as a substring (case-insensitive)
+      - Card number appears in one of the accepted forms
+      - 'japanese' or 'japan' appears (avoids matching EN prints of the
+        same Pokemon species)
+    """
+    if not title: return False
+    t = title.lower()
+    if en_name.lower() not in t:
+        return False
+    forms = _number_forms(local_id)
+    if forms and not any(form in t for form in forms):
+        return False
+    if not any(j in t for j in ("japanese", "japan ", "jp ")):
+        return False
+    return True
+
+
 def price_card(client: EbayClient, card: dict, lang: str, marketplace: str,
-               target_currency: str, fx_jpy_to_usd: float, *, min_count: int) -> dict | None:
-    query = build_query(card, lang)
+               target_currency: str, fx_jpy_to_usd: float, *, min_count: int,
+               verbose_skip: bool = False) -> dict | None:
+    # JA cards go through the strict-relevance path. Skip cards we can't
+    # translate — submitting "japanese pokemon" alone would match noise.
+    if lang == "ja":
+        en_name = _to_en_name(card)
+        if not en_name:
+            if verbose_skip:
+                print(f"   [skip] {card['card_id']}: no JP-to-EN translation available")
+            return None
+    else:
+        en_name = (card.get("name") or "").strip()
+        if not en_name:
+            return None
+
+    query = build_query(card, lang, en_name)
     try:
         items = client.search(
             query, limit=50,
             marketplace_id=marketplace,
-            category_ids=EBAY_CATEGORY_POKEMON if marketplace == "EBAY_US" else None,
+            category_ids=EBAY_CATEGORY_POKEMON,
         )
     except (RuntimeError, httpx.HTTPError) as exc:
-        print(f"  [skip] {card['card_id']}: {exc}")
+        print(f"   [skip] {card['card_id']}: {exc}")
         return None
+
+    # Step 1 — strip generic blocklist (proxy/lots/damaged/etc.)
     filtered = apply_title_filters(items, blocklist=POKEMON_TITLE_BLOCKLIST)
+
+    # Step 2 — JA cards get the strict per-listing card-identity filter.
+    # EN cards use the existing path (the legacy logic worked for EN
+    # because the EN name + set code already disambiguated enough).
+    if lang == "ja":
+        before = len(filtered)
+        filtered = [
+            it for it in filtered
+            if is_relevant_listing(it.get("title", ""), en_name, card.get("local_id", ""))
+        ]
+        if verbose_skip and before > 0:
+            print(f"   [{card['card_id']}] {before} hits → {len(filtered)} after relevance filter")
+
     median, sample_size = consensus_price(filtered, min_count=min_count, currency=target_currency)
     if median is None:
         return None
 
+    # Sample listings for offline spot-check (URL + title).
+    samples = []
+    for it in filtered[:5]:
+        samples.append({
+            "title": (it.get("title") or "")[:120],
+            "price": it.get("price", {}).get("value"),
+            "url": it.get("itemWebUrl") or it.get("itemUrl"),
+        })
+
     price_usd = median if target_currency == "USD" else median * fx_jpy_to_usd
+    derived_source = "ebay_us" if lang == "en" else "ebay_jp"
     return {
         "card_id": card["card_id"],
         "lang": lang,
@@ -202,24 +365,27 @@ def price_card(client: EbayClient, card: dict, lang: str, marketplace: str,
         "price_currency": target_currency,
         "price_usd": round(price_usd, 2),
         "sample_size": sample_size,
-        "price_source": "ebay_us" if marketplace == "EBAY_US" else "ebay_jp",
+        "price_source": derived_source,
+        "query_used": query,
+        "en_name_used": en_name,
+        "spotcheck_samples": samples,
     }
 
 
-def build_query(card: dict, lang: str) -> str:
-    """Card-specific eBay search query.
-    EN: "{name} {setCode} pokemon" (set code is everything before the
-        last hyphen of card_id; the local-id suffix is unhelpful in
-        listing titles).
-    JA: "{japaneseName} {setCode} ポケモン" — JP marketplace search
-        understands Japanese natively. The set code is uppercase
-        (matches eBay JP listing titles).
+def build_query(card: dict, lang: str, en_name: str) -> str:
+    """Card-specific eBay search query, both langs target EBAY_US.
+    EN: "{name} {setCode} pokemon"
+    JA: '"{en_name}" {local_id} japanese pokemon' — quoted name forces
+        the search to keep our Pokemon as the head subject; local_id
+        narrows to the specific print; 'japanese' filters out EN sellers.
     """
     set_code = card["set_id"] or card["card_id"].split("-")[0]
-    name = (card.get("name") or "").strip()
     if lang == "en":
-        return f"{name} {set_code} pokemon"
-    return f"{name} {set_code} ポケモン"
+        return f"{en_name} {set_code} pokemon"
+    lid = (card.get("local_id") or "").lstrip("0") or card.get("local_id") or ""
+    if lid:
+        return f'"{en_name}" {lid} japanese pokemon'
+    return f'"{en_name}" japanese pokemon {set_code}'
 
 
 def build_update_sql(matches: list[dict]) -> list[str]:
