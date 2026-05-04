@@ -33,10 +33,15 @@ export function registerPokemonImageRoutes(app) {
     if (!ALLOWED_QUALITIES.has(quality) || !ALLOWED_EXTS.has(ext)) return c.text('Bad params', 400);
 
     // Validate path components — defensive against path traversal.
+    // setId / localId allow dots because TCGdex uses them for half-step
+    // expansions (sv03.5, sm7.5, swsh4.5, me02.5 — 14 sets total) and
+    // some local_ids (cel25-2A-style variants in Celebrations). Reject
+    // path-traversal attempts explicitly: no '..', no leading '.', no
+    // slashes (already excluded by character class).
     if (!/^[a-z]{2}(-[a-z]{2})?$/.test(lang)) return c.text('Bad lang', 400);
     if (!/^[a-zA-Z0-9_-]+$/.test(series)) return c.text('Bad series', 400);
-    if (!/^[a-zA-Z0-9_-]+$/.test(setId)) return c.text('Bad setId', 400);
-    if (!/^[a-zA-Z0-9_-]+$/.test(localId)) return c.text('Bad localId', 400);
+    if (!/^[a-zA-Z0-9_.-]+$/.test(setId) || setId.startsWith('.') || setId.includes('..')) return c.text('Bad setId', 400);
+    if (!/^[a-zA-Z0-9_.-]+$/.test(localId) || localId.startsWith('.') || localId.includes('..')) return c.text('Bad localId', 400);
 
     const r2Key = `ptcg/${lang}/${series}/${setId}/${localId}/${quality}.${ext}`;
 

@@ -148,6 +148,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: python -m scripts.backfill_yuyutei_jp
 
+      # Hareruya2 (Shopify storefront, no Cloudflare). Walks 18 series-level
+      # collections via /collections/{handle}/products.json, parses set+lid
+      # from product titles, FX-converts JPY→USD. Runs after Yuyutei because
+      # Yuyutei's catalog curation is tighter; Hareruya is supplementary
+      # tier for cards Yuyutei doesn't carry. PoC 2026-05-04: ~923 cards
+      # (+19.7% of unpriced JA tail). Reuses raw-product cache when present.
+      - name: Backfill JA prices via Hareruya
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m scripts.backfill_ptcg_prices_hareruya
+
       - name: Backfill EN prices via eBay (US)
         continue-on-error: true
         env:
