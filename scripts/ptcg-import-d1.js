@@ -43,6 +43,15 @@ function isPocketSet(setId) {
   return POCKET_SET_IDS.has(setId) || setId.startsWith('P-');
 }
 
+// Image columns where we use `excluded.col IS NULL → keep existing`
+// merge semantics. Hoisted ABOVE the top-level upsert loop so the
+// `upsert` helper (called transitively from line ~78) can read it
+// during module init. Previously this lived at line 175 next to the
+// upsert function, but `const` is in TDZ until its declaration line
+// runs — module-init calls would crash with `Cannot access ... before
+// initialization`. Verified 2026-05-05 by run 25394358490.
+const PRESERVE_IF_EXCLUDED_NULL = new Set(['image_high', 'image_low']);
+
 const args = parseArgs(process.argv.slice(2));
 const langs = args.lang ? [args.lang] : ALL_LANGS;
 const dryRun = args['dry-run'] === 'true';
@@ -172,7 +181,8 @@ function cardUpsert(card, lang) {
 // fills with a dead URL (verified 2026-05-04: mcd17/X_hires.png 404s
 // undid the sm1/X_hires.png remap on the Monday cron). Use
 // `excluded.col IS NULL → keep existing` semantics for these fields.
-const PRESERVE_IF_EXCLUDED_NULL = new Set(['image_high', 'image_low']);
+// (PRESERVE_IF_EXCLUDED_NULL is declared near the top of the module
+// because module-init calls into upsert before this line is reached.)
 
 function upsert(table, cols, vals, pkCols) {
   const placeholders = vals.map(escSql).join(', ');
