@@ -1,5 +1,29 @@
 name: Weekly PTCG Refresh
 
+# DAG split (2026-05-05): the original single-job pipeline kept hitting
+# GitHub's hard 6h job ceiling mid-eBay-JA-prices step (~3700 cards
+# rate-limited by eBay's per-app cap). Now structured as three jobs:
+#
+#   1) ingest-and-prices      — TCGdex import + image merges + every
+#                               pricing source EXCEPT eBay JA prices.
+#                               Includes eBay EN prices, eBay EN+JA
+#                               images. ~2-3h typical.
+#   2) ebay-ja-prices         — Just `backfill_ptcg_prices_ebay --lang=ja`,
+#                               with its own 5.5h budget and a D1-backed
+#                               cursor (migration 010). Kills cleanly
+#                               30min before the 6h ceiling so the
+#                               cursor write isn't truncated.
+#   3) manual-overrides       — `import-ptcg-manual-prices.js`, runs
+#                               LAST so manual rows always win even
+#                               when eBay JA was timeout-killed.
+#                               `if: !cancelled()` so a killed eBay JA
+#                               doesn't block manual.
+#
+# Each job carries its own 6h budget. Cursor in eBay JA means even if
+# week N is killed mid-cohort, week N+1 picks up where it stopped and
+# eventually finishes the whole catalog. See migration 010 + the
+# read_cursor/write_cursor helpers in scripts/backfill_ptcg_prices_ebay.py.
+
 on:
   schedule:
     # Mondays 08:00 UTC. Two hours after the OPTCG scrape (06:00 UTC)
@@ -8,18 +32,16 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  refresh:
+  ingest-and-prices:
     runs-on: ubuntu-latest
+    timeout-minutes: 300   # 5h cap; healthy headroom over typical ~2-3h walltime
     permissions:
-      contents: write   # auto-commit the pokemontcg-data submodule pointer
+      contents: write   # auto-commit the submodule pointers
     steps:
       - name: Checkout (with submodules)
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          # Without this token the auto-commit step at the end pushes via
-          # the default GITHUB_TOKEN; keep it explicit so credential
-          # config in the runner survives a soft re-run.
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node
@@ -68,16 +90,9 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-pokemontcg-d1.js
 
-      # TCG Pocket import disabled 2026-05-05 — Pocket is a digital-only
-      # mobile game with no physical secondary market. ptcg-import-d1.js
-      # now drops Pocket sets at the source so they never reach D1.
-      # Leaving the script + flibustier submodule checked in so the
-      # decision is reversible if needed.
-      # - name: Merge flibustier TCG Pocket images
-      #   env:
-      #     CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      #     CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      #   run: node scripts/import-tcgpocket-d1.js
+      # TCG Pocket import disabled 2026-05-05 — Pocket is digital-only,
+      # no physical secondary market. ptcg-import-d1.js drops Pocket
+      # sets at the source.
 
       - name: Merge pkmnbindr JP images (Scrydex CDN catalog)
         env:
@@ -85,11 +100,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-pkmnbindr-jp-d1.js
 
-      # Bulk-INSERT JA cards that exist in pkmnbindr's 211-set catalog
-      # but TCGdex doesn't carry. Idempotent via INSERT OR IGNORE — only
-      # adds genuinely new rows on re-runs (initial run added ~19,547
-      # cards on top of TCGdex's 5,935; subsequent weeks should add a
-      # handful as new sets release).
+      # pkmnbindr's 211-set catalog covers JA cards TCGdex doesn't carry.
+      # Idempotent INSERT OR IGNORE.
       - name: Bulk-import pkmnbindr JP catalog (new card rows)
         continue-on-error: true
         env:
@@ -97,10 +109,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: python -m scripts.import_pkmnbindr_jp_catalog
 
-      # pkmnbindr uses legacy IDs (ECARD1, BASE1, GYM1) for vintage JA
-      # sets while TCGdex uses (E1, PMCG1, PMCG5). This script does the
-      # explicit ID + zero-padding mapping so images land on the canonical
-      # TCGdex rows instead of duplicate pkmnbindr-keyed rows.
+      # ID + zero-pad mapping so legacy IDs (ECARD1/BASE1/GYM1) land on
+      # the canonical TCGdex rows (E1/PMCG1/PMCG5).
       - name: Backfill JA vintage images (E1-E5 / PMCG1-PMCG6)
         continue-on-error: true
         env:
@@ -115,11 +125,8 @@ jobs:
         run: node scripts/import-malie-en-d1.js
 
       # Live api.pokemontcg.io / Scrydex pull. Only carries TCGplayer
-      # prices for the main TCG (no Pocket, no recent promos), so this
-      # step refreshes USD prices for the ~17k cards in mapped sets
-      # without disturbing manual or non-EN rows. Optional API key in
-      # POKEMONTCG_API_KEY lifts the rate limit; current 165 req/run
-      # fits comfortably under the 1k/day no-key cap.
+      # prices for the main TCG. Refreshes USD prices for the ~17k
+      # cards in mapped sets without disturbing manual or non-EN rows.
       - name: Fetch live pokemontcg.io prices (USD)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -127,7 +134,7 @@ jobs:
           POKEMONTCG_API_KEY: ${{ secrets.POKEMONTCG_API_KEY }}
         run: node scripts/fetch-pokemontcg-prices.js
 
-      - name: Setup Python (for eBay backfill)
+      - name: Setup Python (for eBay + Yuyutei + Hareruya)
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -135,17 +142,10 @@ jobs:
       - name: Install Python deps
         run: pip install -r requirements.txt
 
-      # eBay backfill is the LAST price source. Runs after manual,
-      # pokemontcg, and cardmarket so it only fills genuine gaps. EN
-      # cards search EBAY_US for USD; JA cards search EBAY_JP and
-      # FX-convert via frankfurter.app. Stamps price_source='ebay_us'
-      # or 'ebay_jp' — manual rows are protected by the WHERE clause.
-      # Yuyutei (JP retailer) layered on top of pkmnbindr's catalog —
-      # adds JP retail prices the catalog doesn't carry, plus images
-      # for sets pkmnbindr's snapshot hasn't ingested yet. Runs BEFORE
-      # eBay JP because retail prices are more stable than auction
-      # noise; Yuyutei's UPDATE clause includes 'ebay_jp' so it will
-      # supersede a prior eBay JP value if Yuyutei has the card.
+      # Yuyutei (JP retailer) layered on top of pkmnbindr's catalog.
+      # Runs BEFORE eBay JP because retail prices are more stable than
+      # auction noise. Yuyutei's UPDATE clause includes 'ebay_jp' so it
+      # supersedes a prior eBay JP value if Yuyutei has the card.
       - name: Backfill JA images + prices via Yuyutei
         continue-on-error: true
         env:
@@ -153,12 +153,10 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: python -m scripts.backfill_yuyutei_jp
 
-      # Hareruya2 (Shopify storefront, no Cloudflare). Walks 18 series-level
-      # collections via /collections/{handle}/products.json, parses set+lid
-      # from product titles, FX-converts JPY→USD. Runs after Yuyutei because
-      # Yuyutei's catalog curation is tighter; Hareruya is supplementary
-      # tier for cards Yuyutei doesn't carry. PoC 2026-05-04: ~923 cards
-      # (+19.7% of unpriced JA tail). Reuses raw-product cache when present.
+      # Hareruya2 (Shopify storefront, no Cloudflare). Walks 18 series-
+      # level collections via /collections/{handle}/products.json,
+      # parses set+lid from product titles, FX-converts JPY→USD. Runs
+      # after Yuyutei because Yuyutei's catalog curation is tighter.
       - name: Backfill JA prices via Hareruya
         continue-on-error: true
         env:
@@ -168,6 +166,7 @@ jobs:
 
       - name: Backfill EN prices via eBay (US)
         continue-on-error: true
+        timeout-minutes: 90
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -175,22 +174,12 @@ jobs:
           EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
         run: python -m scripts.backfill_ptcg_prices_ebay --lang=en
 
-      - name: Backfill JA prices via eBay (JP)
-        continue-on-error: true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          EBAY_APP_ID: ${{ secrets.EBAY_APP_ID }}
-          EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
-        run: python -m scripts.backfill_ptcg_prices_ebay --lang=ja
-
-      # Last-resort image source for cards no other catalog covers (mep,
-      # mfb, exu, tk-*, recent McDonald's promos). Requires ≥2 listings
-      # sharing the same image URL — that's the floor for confidence
-      # the URL points at the right card. Quality is lower than dedicated
-      # scan sources but better than tinted placeholders for residuals.
+      # eBay image backfills are last-resort sources for cards no other
+      # catalog covers. Cohort is small (hundreds, not thousands) so
+      # they fit comfortably in this job alongside everything else.
       - name: Backfill EN images via eBay (US)
         continue-on-error: true
+        timeout-minutes: 60
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -200,6 +189,7 @@ jobs:
 
       - name: Backfill JA images via eBay (JP)
         continue-on-error: true
+        timeout-minutes: 60
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -207,14 +197,9 @@ jobs:
           EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
         run: python -m scripts.backfill_ptcg_images_ebay --lang=ja
 
-      - name: Apply manual overrides
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: node scripts/import-ptcg-manual-prices.js
-
-      # Only the submodule pointer needs to be committed back; the
-      # TCGdex cache lives in actions/cache (above) and isn't tracked.
+      # Submodule pointers committed here at the end of the ingest job.
+      # Even if eBay JA prices fails downstream, the data updates from
+      # this job still land in git history.
       - name: Commit submodule pointers if changed
         run: |
           if ! git diff --quiet data/pokemontcg-data data/pokemon-tcg-pocket-database 2>/dev/null; then
@@ -226,3 +211,68 @@ jobs:
           else
             echo "No submodule changes — skipping commit."
           fi
+
+  ebay-ja-prices:
+    # Isolated job for the long-pole eBay JA pricing step. Gets its own
+    # 6h budget; uses a D1-backed cursor so a 6h kill preserves progress
+    # for week N+1 to pick up. timeout-minutes is set to 330 (5.5h) so
+    # the cursor write isn't truncated by GH's hard kill at 6h.
+    needs: ingest-and-prices
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: Backfill JA prices via eBay (JP) with cursor resume
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          EBAY_APP_ID: ${{ secrets.EBAY_APP_ID }}
+          EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
+        run: python -m scripts.backfill_ptcg_prices_ebay --lang=ja
+
+  manual-overrides:
+    # Runs LAST so manual_prices.json wins over every automated source.
+    # `if: !cancelled()` so even a timeout-killed eBay JA doesn't block
+    # the manual sweep — manual is small (~1min) and always-applied.
+    needs: ebay-ja-prices
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Apply manual overrides
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/import-ptcg-manual-prices.js

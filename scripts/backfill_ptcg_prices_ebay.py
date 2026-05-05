@@ -80,6 +80,15 @@ POKEMON_TITLE_BLOCKLIST: tuple[str, ...] = (
 # storing so the frontend always sees USD.
 JPY_TO_USD_FALLBACK = 0.0067  # last-resort hardcoded rate ≈ ¥150/$1
 
+# Resumable-cursor knobs. Cards are processed in card_id order; every
+# CURSOR_FLUSH_EVERY cards we UPSERT the cursor row in D1 so that if
+# GitHub Actions kills the job for hitting the 6h ceiling, next week's
+# run resumes from the latest flushed position. On reaching the end of
+# the unpriced list, the cursor is cleared (last_card_id=NULL) so the
+# following run starts fresh and revisits any cards that returned
+# 'no consensus' last cycle.
+CURSOR_FLUSH_EVERY = 100
+
 
 def main() -> None:
     ap = argparse.ArgumentParser()
@@ -96,8 +105,20 @@ def main() -> None:
                          "alphabetically-first cohort (vintage ADV1/ADV3 etc).")
     args = ap.parse_args()
 
+    # Cursor only applies in plain production mode. --shuffle randomizes
+    # order so cursor pagination is meaningless; --limit is for smoke
+    # tests; --dry-run never writes prices, so cursor advance would lie.
+    cursor_source = f"ebay_prices_{args.lang}"
+    use_cursor = not (args.shuffle or args.limit or args.dry_run)
+    start_cursor = read_cursor(cursor_source) if use_cursor else None
+    if use_cursor:
+        if start_cursor:
+            print(f"   resume cursor: card_id > '{start_cursor}'")
+        else:
+            print(f"   no cursor — starting from beginning")
+
     print(f"1. Querying D1 for {args.lang} cards without price...")
-    cards = query_unpriced_cards(args.lang)
+    cards = query_unpriced_cards(args.lang, after_card_id=start_cursor if use_cursor else None)
     if args.shuffle:
         import random
         random.shuffle(cards)
@@ -106,6 +127,11 @@ def main() -> None:
     print(f"   {len(cards)} cards in scope\n")
     if not cards:
         print("Nothing to backfill. Exiting.")
+        # Cursor reached end-of-list (or list was empty to start). Reset
+        # so next run revisits everything that's still unpriced.
+        if use_cursor and start_cursor:
+            print(f"   clearing cursor for {cursor_source}")
+            write_cursor(cursor_source, None)
         return
 
     print("2. Initializing eBay client...")
@@ -131,6 +157,7 @@ def main() -> None:
 
     print("3. Pricing cards via eBay...")
     matches: list[dict] = []
+    last_processed_card_id: str | None = None
     for i, card in enumerate(cards, start=1):
         result = price_card(client, card, args.lang, marketplace, target_currency,
                             fx_jpy_to_usd, min_count=args.min_count,
@@ -141,11 +168,22 @@ def main() -> None:
                   f"(n={result['sample_size']}, src={result['price_source']})", flush=True)
         else:
             print(f"   [{i}/{len(cards)}] {card['card_id']}: no consensus", flush=True)
+        last_processed_card_id = card["card_id"]
+        # Periodic cursor flush so a 6h timeout preserves progress within
+        # ~CURSOR_FLUSH_EVERY cards. Skipped in non-cursor modes.
+        if use_cursor and i % CURSOR_FLUSH_EVERY == 0:
+            write_cursor(cursor_source, last_processed_card_id)
         time.sleep(0.25)  # well under eBay's per-app rate limit
     print(f"\n   {len(matches)} cards priced via eBay\n")
 
     if not matches:
         print("No prices found. Nothing to write.")
+        # We attempted every card in scope and none matched. Clear the
+        # cursor so the next run revisits everything (eBay listing
+        # liquidity may have improved by next week).
+        if use_cursor:
+            print(f"   clearing cursor for {cursor_source}")
+            write_cursor(cursor_source, None)
         return
 
     # Sanity gate — catches the "$7.47 on every card" failure mode.
@@ -174,6 +212,12 @@ def main() -> None:
             matches_file = OUT_DIR / f"ebay_ptcg_{args.lang}_matches.json"
             matches_file.write_text(json.dumps(matches, indent=2, ensure_ascii=False), encoding="utf-8")
             print(f"    matches dumped to: {matches_file}")
+            # Cursor was advanced incrementally during the loop. Roll it
+            # back to where we started so next week re-attempts the same
+            # cohort instead of skipping past the suspect data.
+            if use_cursor:
+                print(f"    rolling cursor back to: {start_cursor or '(unset)'}")
+                write_cursor(cursor_source, start_cursor)
             sys.exit(2)
 
     sql_lines = build_update_sql(matches)
@@ -195,17 +239,29 @@ def main() -> None:
     if result.returncode != 0:
         print("Execute failed.")
         sys.exit(result.returncode)
+    # Reached end of the unpriced cohort and successfully wrote the
+    # batch — clear the cursor so next week starts fresh and revisits
+    # any 'no consensus' rows that might have liquidity now.
+    if use_cursor:
+        print(f"   clearing cursor for {cursor_source}")
+        write_cursor(cursor_source, None)
     print("Done.")
 
 
-def query_unpriced_cards(lang: str) -> list[dict]:
-    """Returns [{card_id, name, set_id}, ...] for cards in the given lang
-    that don't have a useful price. We treat null and cardmarket-EUR as
-    'priced gap' since eBay USD beats those for chase-card valuation."""
+def query_unpriced_cards(lang: str, after_card_id: str | None = None) -> list[dict]:
+    """Returns [{card_id, name, set_id, local_id}, ...] for cards in the
+    given lang that don't have a useful price. We treat null and
+    cardmarket-EUR as 'priced gap' since eBay USD beats those for
+    chase-card valuation. ORDER BY card_id so a cursor advancing on
+    last_card_id can paginate cleanly across timed-out runs."""
+    where_extra = ""
+    if after_card_id:
+        cid = after_card_id.replace("'", "''")
+        where_extra = f" AND card_id > '{cid}'"
     sql = (
-        f"SELECT card_id, name, set_id FROM ptcg_cards WHERE lang = '{lang}' "
-        "AND (price_source IS NULL OR price_source = 'cardmarket') "
-        "ORDER BY set_id, local_id"
+        f"SELECT card_id, name, set_id, local_id FROM ptcg_cards WHERE lang = '{lang}' "
+        f"AND (price_source IS NULL OR price_source = 'cardmarket'){where_extra} "
+        "ORDER BY card_id"
     )
     out = subprocess.run(
         WRANGLER_BIN + ["--remote", "--json", "--command", sql],
@@ -221,6 +277,53 @@ def query_unpriced_cards(lang: str) -> list[dict]:
     payload = json.loads(out.stdout[payload_start:])
     rows = payload[0].get("results", []) if isinstance(payload, list) else payload.get("results", [])
     return rows or []
+
+
+def read_cursor(source: str) -> str | None:
+    """Returns last_card_id for `source` from ptcg_backfill_cursor, or
+    None if no row exists or last_card_id IS NULL. Failures (network,
+    table missing) are non-fatal — we just start from the beginning."""
+    out = subprocess.run(
+        WRANGLER_BIN + ["--remote", "--json", "--command",
+            f"SELECT last_card_id FROM ptcg_backfill_cursor WHERE source = '{source}'"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    if out.returncode != 0:
+        return None
+    payload_start = (out.stdout or "").find("[")
+    if payload_start < 0:
+        return None
+    try:
+        payload = json.loads(out.stdout[payload_start:])
+        rows = payload[0].get("results", []) if isinstance(payload, list) else []
+        if rows and rows[0].get("last_card_id"):
+            return rows[0]["last_card_id"]
+    except (ValueError, KeyError, IndexError):
+        return None
+    return None
+
+
+def write_cursor(source: str, card_id: str | None) -> None:
+    """UPSERT cursor for `source`. card_id=None clears it so the next
+    run starts from the beginning of the unpriced list. Failures here
+    are silent — losing a cursor flush just means the next run restarts
+    a small chunk earlier."""
+    if card_id is None:
+        sql = f"DELETE FROM ptcg_backfill_cursor WHERE source = '{source}'"
+    else:
+        cid = card_id.replace("'", "''")
+        ts = int(time.time())
+        sql = (
+            f"INSERT INTO ptcg_backfill_cursor (source, last_card_id, updated_at) "
+            f"VALUES ('{source}', '{cid}', {ts}) "
+            f"ON CONFLICT(source) DO UPDATE SET "
+            f"last_card_id = excluded.last_card_id, "
+            f"updated_at = excluded.updated_at"
+        )
+    subprocess.run(
+        WRANGLER_BIN + ["--remote", "--command", sql],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
 
 
 _JP_EN_CACHE: dict | None = None
