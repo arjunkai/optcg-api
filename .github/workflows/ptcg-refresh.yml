@@ -68,11 +68,16 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-pokemontcg-d1.js
 
-      - name: Merge flibustier TCG Pocket images
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: node scripts/import-tcgpocket-d1.js
+      # TCG Pocket import disabled 2026-05-05 — Pocket is a digital-only
+      # mobile game with no physical secondary market. ptcg-import-d1.js
+      # now drops Pocket sets at the source so they never reach D1.
+      # Leaving the script + flibustier submodule checked in so the
+      # decision is reversible if needed.
+      # - name: Merge flibustier TCG Pocket images
+      #   env:
+      #     CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      #     CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      #   run: node scripts/import-tcgpocket-d1.js
 
       - name: Merge pkmnbindr JP images (Scrydex CDN catalog)
         env:

@@ -24,6 +24,25 @@ const BATCH_DIR = 'scripts/ptcg_batches';
 const BATCH_SIZE = 500; // D1 hard limit is 1000; 500 leaves headroom for big raw blobs.
 const DB_NAME = 'optcg-cards';
 
+// Pokémon TCG Pocket sets — digital-only mobile game with no physical
+// secondary market. Including them in the catalog distorts coverage
+// stats (no real prices possible) and confuses users browsing the
+// physical game's binders. Verified 2026-05-05 with the user. Drop at
+// import time so they never reach D1; safer than periodic DELETE
+// cleanup since TCGdex re-emits them every fetch.
+const POCKET_SET_IDS = new Set([
+  'A1', 'A1a', 'A2', 'A2a', 'A2b',
+  'A3', 'A3a', 'A3b',
+  'A4', 'A4a',
+  'B1', 'B1a', 'B2', 'B2a', 'B3',
+  'P-A', 'P-B',
+]);
+
+function isPocketSet(setId) {
+  if (!setId) return false;
+  return POCKET_SET_IDS.has(setId) || setId.startsWith('P-');
+}
+
 const args = parseArgs(process.argv.slice(2));
 const langs = args.lang ? [args.lang] : ALL_LANGS;
 const dryRun = args['dry-run'] === 'true';
@@ -41,11 +60,19 @@ for (const lang of langs) {
     continue;
   }
 
-  const sets = JSON.parse(readFileSync(setsPath, 'utf-8'));
-  const cardsMap = JSON.parse(readFileSync(cardsPath, 'utf-8'));
-  const cards = Object.values(cardsMap);
+  const setsRaw = JSON.parse(readFileSync(setsPath, 'utf-8'));
+  const cardsMapRaw = JSON.parse(readFileSync(cardsPath, 'utf-8'));
 
-  console.log(`\n[${lang}] ${sets.length} sets, ${cards.length} cards`);
+  // Filter out TCG Pocket sets + cards before any D1 work — see the
+  // POCKET_SET_IDS list above for rationale.
+  const sets = setsRaw.filter(s => !isPocketSet(s.id));
+  const cardsAll = Object.values(cardsMapRaw);
+  const cards = cardsAll.filter(c => !isPocketSet(c.set?.id));
+  const droppedSets = setsRaw.length - sets.length;
+  const droppedCards = cardsAll.length - cards.length;
+
+  console.log(`\n[${lang}] ${sets.length} sets, ${cards.length} cards`
+    + (droppedSets || droppedCards ? ` (dropped ${droppedSets} pocket sets, ${droppedCards} pocket cards)` : ''));
 
   const stmts = [];
   for (const set of sets) stmts.push(setUpsert(set, lang));
