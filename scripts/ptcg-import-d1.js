@@ -138,12 +138,29 @@ function cardUpsert(card, lang) {
 
 // ── SQL helpers ───────────────────────────────────────────────────────────
 
+// Columns that downstream scripts (Bulbagarden/malie/pokemontcg-data
+// /residual remaps/manual overrides) populate AFTER the TCGdex import
+// runs. If TCGdex returns null for one of these on a re-run, blindly
+// overwriting blanks the override and the next pokemontcg-data merge
+// fills with a dead URL (verified 2026-05-04: mcd17/X_hires.png 404s
+// undid the sm1/X_hires.png remap on the Monday cron). Use
+// `excluded.col IS NULL → keep existing` semantics for these fields.
+const PRESERVE_IF_EXCLUDED_NULL = new Set(['image_high', 'image_low']);
+
 function upsert(table, cols, vals, pkCols) {
   const placeholders = vals.map(escSql).join(', ');
   const colList = cols.join(', ');
   const updateCols = cols.filter(c => !pkCols.includes(c));
   const updateClause = updateCols.length
-    ? updateCols.map(c => `${c}=excluded.${c}`).join(', ') + `, updated_at=strftime('%s','now')`
+    ? updateCols.map(c => {
+        if (PRESERVE_IF_EXCLUDED_NULL.has(c)) {
+          // COALESCE(excluded.c, c) — prefer fresh upstream when present,
+          // keep existing override when upstream null. Idempotent: TCGdex
+          // updates still flow through whenever they DO carry an image.
+          return `${c}=COALESCE(excluded.${c}, ${c})`;
+        }
+        return `${c}=excluded.${c}`;
+      }).join(', ') + `, updated_at=strftime('%s','now')`
     : `updated_at=strftime('%s','now')`;
   const conflict = pkCols.join(', ');
   return `INSERT INTO ${table} (${colList}) VALUES (${placeholders}) ON CONFLICT(${conflict}) DO UPDATE SET ${updateClause};`;
