@@ -102,6 +102,12 @@ export function registerPokemonCardRoutes(app) {
     const baseUrl = new URL(c.req.url);
     const refresh = baseUrl.searchParams.get('refresh') === '1';
     baseUrl.searchParams.delete('refresh');
+    // Cache version — bump whenever the slim response shape changes so
+    // pre-deploy cached payloads get effectively invalidated. The Cache
+    // API keys on full URL, so a different _v query param creates a
+    // distinct entry and the old one ages out naturally.
+    //   v2 (2026-05-07): JA queries now JOIN to EN for name_en alias
+    baseUrl.searchParams.set('_v', '2');
     const cacheKey = new Request(baseUrl.toString(), { method: 'GET' });
     if (refresh) await cache.delete(cacheKey);
     else {
@@ -109,14 +115,40 @@ export function registerPokemonCardRoutes(app) {
       if (hit) return hit;
     }
 
-    const { results } = await c.env.DB.prepare(`
-      SELECT card_id, lang, set_id, local_id, name, name_en, category, rarity,
-             hp, retreat, types_csv, stage, variants_json,
-             image_high, image_low, pricing_json, price_source, dominant_color
-      FROM ptcg_cards
-      WHERE lang = ?
-      ORDER BY set_id, local_id
-    `).bind(lang).all();
+    // For JA queries, LEFT JOIN to the EN row with the same card_id so
+    // every card whose English counterpart exists in D1 gets a name_en
+    // alias for free — no backfill bookkeeping needed. COALESCE prefers
+    // the explicit ptcg_cards.name_en column when set (manual override
+    // or enrich_ja_card_names.py output for JA-only cards), falls back
+    // to the JOINed EN name otherwise. Other langs skip the JOIN since
+    // EN's `name` is already the EN alias for them when needed.
+    const sql = lang === 'ja'
+      ? `
+        SELECT ja.card_id AS card_id, ja.lang AS lang, ja.set_id AS set_id,
+               ja.local_id AS local_id, ja.name AS name,
+               COALESCE(ja.name_en, en.name) AS name_en,
+               ja.category AS category, ja.rarity AS rarity,
+               ja.hp AS hp, ja.retreat AS retreat, ja.types_csv AS types_csv,
+               ja.stage AS stage, ja.variants_json AS variants_json,
+               ja.image_high AS image_high, ja.image_low AS image_low,
+               ja.pricing_json AS pricing_json, ja.price_source AS price_source,
+               ja.dominant_color AS dominant_color
+        FROM ptcg_cards ja
+        LEFT JOIN ptcg_cards en ON en.card_id = ja.card_id AND en.lang = 'en'
+        WHERE ja.lang = 'ja'
+        ORDER BY ja.set_id, ja.local_id
+      `
+      : `
+        SELECT card_id, lang, set_id, local_id, name, name_en, category, rarity,
+               hp, retreat, types_csv, stage, variants_json,
+               image_high, image_low, pricing_json, price_source, dominant_color
+        FROM ptcg_cards
+        WHERE lang = ?
+        ORDER BY set_id, local_id
+      `;
+
+    const stmt = lang === 'ja' ? c.env.DB.prepare(sql) : c.env.DB.prepare(sql).bind(lang);
+    const { results } = await stmt.all();
 
     const data = (results || []).map((row) => withSlimPricing(rowToSlim(row)));
     const response = jsonResponse({ count: data.length, data });
