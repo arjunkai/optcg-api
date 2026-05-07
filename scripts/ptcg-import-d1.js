@@ -50,13 +50,29 @@ function isPocketSet(setId) {
 // upsert function, but `const` is in TDZ until its declaration line
 // runs — module-init calls would crash with `Cannot access ... before
 // initialization`. Verified 2026-05-05 by run 25394358490.
-const PRESERVE_IF_EXCLUDED_NULL = new Set(['image_high', 'image_low']);
+const PRESERVE_IF_EXCLUDED_NULL = new Set(['image_high', 'image_low', 'name_en']);
 
 const args = parseArgs(process.argv.slice(2));
 const langs = args.lang ? [args.lang] : ALL_LANGS;
 const dryRun = args['dry-run'] === 'true';
 
 if (!existsSync(BATCH_DIR)) mkdirSync(BATCH_DIR, { recursive: true });
+
+// JA card_id → canonical English name. Populated by
+// scripts/enrich_ja_card_names.py and used here to fill name_en on JA
+// rows so latin-script search ("charmander") can match Japanese-named
+// rows whose primary `name` is "ヒトカゲ". Optional load — if the file
+// isn't present (fresh checkout, never ran enrich), JA rows just get
+// name_en=null and search behaves as it does today.
+const NAME_EN_PATH = 'data/ja_card_id_to_en_name.json';
+const jaCardIdToEnName = existsSync(NAME_EN_PATH)
+  ? JSON.parse(readFileSync(NAME_EN_PATH, 'utf-8'))
+  : {};
+if (Object.keys(jaCardIdToEnName).length === 0) {
+  console.log(`[name_en] ${NAME_EN_PATH} not present; JA rows will have name_en=null`);
+} else {
+  console.log(`[name_en] ${Object.keys(jaCardIdToEnName).length} JA→EN name mappings loaded`);
+}
 
 let totalSetRows = 0;
 let totalCardRows = 0;
@@ -144,9 +160,13 @@ function cardUpsert(card, lang) {
   const variants = card.variants ?? {};
   const types = Array.isArray(card.types) ? card.types.join(',') : null;
   const imageBase = card.image ?? null;
+  // JA rows get a name_en alias so the frontend search index can match
+  // a latin-script query against Japanese-named cards. EN rows leave
+  // name_en null because `name` is already the English value.
+  const nameEn = lang === 'ja' ? (jaCardIdToEnName[card.id] ?? null) : null;
 
   const cols = [
-    'card_id', 'lang', 'set_id', 'local_id', 'name',
+    'card_id', 'lang', 'set_id', 'local_id', 'name', 'name_en',
     'category', 'rarity', 'hp', 'types_csv', 'stage',
     'variants_json', 'image_low', 'image_high',
     'pricing_json', 'dominant_color', 'raw',
@@ -157,6 +177,7 @@ function cardUpsert(card, lang) {
     card.set?.id ?? null,
     card.localId ?? null,
     card.name ?? null,
+    nameEn,
     card.category ?? null,
     card.rarity ?? null,
     typeof card.hp === 'number' ? card.hp : null,

@@ -19,6 +19,7 @@ data/don_resolution_audit.json
 .claude/
 scripts/import*.sql
 scripts/*_batches/
+scripts/backfill_name_en/
 scripts/.tmp/
 node_modules/
 .wrangler/

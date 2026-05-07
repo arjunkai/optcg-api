@@ -32,6 +32,10 @@ export function rowToSlim(row) {
     set_id: row.set_id,
     local_id: row.local_id,
     name: row.name,
+    // English-name alias for JA rows so the frontend search index can
+    // match a latin-script query against Japanese-named cards. Null on
+    // EN/zh-* rows where `name` is already latin/local.
+    name_en: row.name_en ?? null,
     category: row.category,
     rarity: row.rarity,
     hp: row.hp,
@@ -106,7 +110,7 @@ export function registerPokemonCardRoutes(app) {
     }
 
     const { results } = await c.env.DB.prepare(`
-      SELECT card_id, lang, set_id, local_id, name, category, rarity,
+      SELECT card_id, lang, set_id, local_id, name, name_en, category, rarity,
              hp, retreat, types_csv, stage, variants_json,
              image_high, image_low, pricing_json, price_source, dominant_color
       FROM ptcg_cards
