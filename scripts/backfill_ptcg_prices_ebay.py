@@ -48,11 +48,19 @@ from typing import Iterable
 
 import httpx
 
-from scripts.ebay_client import EbayClient, apply_title_filters, consensus_price
+from scripts.ebay_client import (
+    EbayClient, EbayAccessDeniedError, apply_title_filters, consensus_price,
+)
 
 
 # Pokemon Individual Cards on eBay US.
 EBAY_CATEGORY_POKEMON = "183454"
+
+# eBay Browse filter applied to every search. Excludes used/damaged
+# condition + auctions, both of which add price noise we'd then have to
+# trim out via consensus median. Listing pool quality matters more than
+# pool size for chase cards. Per docs/ebay-apis.md (Browse API section).
+BROWSE_FILTER = "conditions:{NEW|LIKE_NEW},buyingOptions:{FIXED_PRICE}"
 DB_NAME = "optcg-cards"
 WRANGLER_BIN = ["node", "./node_modules/wrangler/bin/wrangler.js", "d1", "execute", DB_NAME]
 OUT_DIR = Path("data/backfill")
@@ -175,6 +183,7 @@ def main() -> None:
             write_cursor(cursor_source, last_processed_card_id)
         time.sleep(0.25)  # well under eBay's per-app rate limit
     print(f"\n   {len(matches)} cards priced via eBay\n")
+    _save_translate_cache()
 
     if not matches:
         print("No prices found. Nothing to write.")
@@ -350,11 +359,39 @@ def _load_jp_en_maps() -> tuple[dict, dict]:
     return _JP_EN_CACHE, _CARD_ID_EN_CACHE
 
 
-def _to_en_name(card: dict) -> str | None:
+_TRANSLATE_CACHE_PATH = Path("data/.ebay_translate_cache.json")
+_translate_cache: dict[str, str] | None = None
+
+
+def _load_translate_cache() -> dict[str, str]:
+    global _translate_cache
+    if _translate_cache is None:
+        try:
+            _translate_cache = json.loads(_TRANSLATE_CACHE_PATH.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            _translate_cache = {}
+    return _translate_cache
+
+
+def _save_translate_cache() -> None:
+    if _translate_cache is None:
+        return
+    _TRANSLATE_CACHE_PATH.write_text(
+        json.dumps(_translate_cache, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+
+
+def _to_en_name(card: dict, client: EbayClient | None = None) -> str | None:
     """For a JA card, return the best English-name guess for eBay search.
     Returns None if we can't translate — caller skips the card rather than
     submitting a query that would match generic noise.
-    Priority: card_id-keyed canonical override → JP-species-name lookup."""
+    Priority: card_id-keyed canonical override → JP-species-name lookup →
+    eBay Commerce Translation fallback (cached on disk).
+
+    Translation requires the commerce.translation scope to be enabled on
+    the eBay keyset. If the scope returns invalid_scope, the fallback
+    quietly skips and the caller's verification filter still gates the
+    result downstream."""
     jp_en, cid_en = _load_jp_en_maps()
     cid = card.get("card_id") or ""
     if cid in cid_en and cid_en[cid]:
@@ -363,7 +400,28 @@ def _to_en_name(card: dict) -> str | None:
     base = re.split(r"[(（\s]", jp_name)[0]
     if base in jp_en:
         return jp_en[base]
-    return None
+
+    # Last-resort: eBay translation. Cached per JP name on disk so a
+    # weekly re-run doesn't re-translate the same 1500 unmapped names.
+    if not client or not jp_name:
+        return None
+    cache = _load_translate_cache()
+    if jp_name in cache:
+        return cache[jp_name] or None
+    try:
+        translated = client.translate([jp_name], from_lang="ja", to_lang="en")
+        candidate = (translated[0] or "").strip() if translated else ""
+    except (EbayAccessDeniedError, RuntimeError, httpx.HTTPError):
+        # Scope not enabled or transient failure. Skip rather than retry.
+        cache[jp_name] = ""
+        return None
+    # Sanity: an empty/single-character translation is almost certainly
+    # garbage. Cache the empty result so we don't retry forever.
+    if len(candidate) < 2:
+        cache[jp_name] = ""
+        return None
+    cache[jp_name] = candidate
+    return candidate
 
 
 # Acceptable forms of a card number in eBay listing titles. Sellers
@@ -410,7 +468,7 @@ def price_card(client: EbayClient, card: dict, lang: str, marketplace: str,
     # JA cards go through the strict-relevance path. Skip cards we can't
     # translate — submitting "japanese pokemon" alone would match noise.
     if lang == "ja":
-        en_name = _to_en_name(card)
+        en_name = _to_en_name(card, client=client)
         if not en_name:
             if verbose_skip:
                 print(f"   [skip] {card['card_id']}: no JP-to-EN translation available")
@@ -426,6 +484,7 @@ def price_card(client: EbayClient, card: dict, lang: str, marketplace: str,
             query, limit=50,
             marketplace_id=marketplace,
             category_ids=EBAY_CATEGORY_POKEMON,
+            filter_str=BROWSE_FILTER,
         )
     except (RuntimeError, httpx.HTTPError) as exc:
         print(f"   [skip] {card['card_id']}: {exc}")

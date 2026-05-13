@@ -81,8 +81,18 @@ SET_TO_PC_SLUG = {
     "E1":     "pokemon-japanese-expedition-expansion-pack",
     "E4":     "pokemon-japanese-mysterious-mountains",
     "E5":     "pokemon-japanese-awakening-legends",
-    # ADV era
+    # ADV era — Magma vs Aqua / Hoenn-era 2003-2004
+    # ADV1 拡張パック = "Expansion Pack" (base ADV set, ~EX Ruby & Sapphire JP)
+    "ADV1":   "pokemon-japanese-expansion-pack-adv",
     "ADV2":   "pokemon-japanese-mirage-forest",
+    # ADV3 天空の覇者 = "Conqueror of the Sky"
+    "ADV3":   "pokemon-japanese-rulers-of-the-heavens",
+    # ADV4 マグマVSアクア ふたつの野望 = "Magma VS Aqua: Two Ambitions"
+    "ADV4":   "pokemon-japanese-magma-vs-aqua-two-ambitions",
+    # ADV5 解かれた封印 = "Hidden Legends" / "Unbroken Seal" — verified
+    # not on PC as of 2026-05-13 (searched: hidden-legends, untied-seal,
+    # released-seal, broken-seal, unleashed-seal — all 404).
+    "ADVP":   "pokemon-japanese-promo",
     # PCG / Holon era — TCGdex JP names verified
     # PCG1 伝説の飛翔 = "Legendary Flight" — closest PC: awakening-legends
     "PCG1":   "pokemon-japanese-awakening-legends",
@@ -206,15 +216,55 @@ SET_TO_PC_SLUG = {
     "XY5b":   "pokemon-japanese-double-crisis",
     "XY6":    "pokemon-japanese-bandit-ring",
     "XY7":    "pokemon-japanese-clash-of-the-blue-sky",
-    "XY8a":   "pokemon-japanese-yamabuki-city-gym",  # might be wrong
+    # XY8a 赤い閃光 = "Red Flash" — verified slug 2026-05-13.
+    "XY8a":   "pokemon-japanese-red-flash",
     "XY9":    "pokemon-japanese-rage-of-the-broken-heavens",
     "CP1":    "pokemon-japanese-double-crisis",
     "CP4":    "pokemon-japanese-pokekyun-collection",
     "CP5":    "pokemon-japanese-mythical-legendary-dream-shine",
     "CP6":    "pokemon-japanese-20th-anniversary",
-    # BW era
-    "BW1":    "pokemon-japanese-black-collection",
-    "BW2":    "pokemon-japanese-white-collection",
+    # BW era — first-wave split sets, our DB uses BW1B/BW1W (not BW1)
+    "BW1B":   "pokemon-japanese-black-collection",
+    "BW1W":   "pokemon-japanese-white-collection",
+    # BW2 レッドコレクション = "Red Collection" (was wrongly mapped to "white" before)
+    "BW2":    "pokemon-japanese-red-collection",
+    "BW3H":   "pokemon-japanese-hail-blizzard",
+    "BW3P":   "pokemon-japanese-psycho-drive",
+    "BW4":    "pokemon-japanese-dark-rush",
+    # BW5 split: D = "Dragon Selection"/"Ryuu no Blade", S = "Dragon Blast"
+    "BW5D":   "pokemon-japanese-dragon-blade",
+    "BW5S":   "pokemon-japanese-dragon-blast",
+    "BW6C":   "pokemon-japanese-cold-flare",
+    "BW6F":   "pokemon-japanese-freeze-bolt",
+    "BW7":    "pokemon-japanese-plasma-gale",
+    "BW8S":   "pokemon-japanese-spiral-force",
+    "BW8T":   "pokemon-japanese-thunder-knuckle",
+    "BW9":    "pokemon-japanese-megalo-cannon",
+    # DP era — split sets the existing DP4/DP5 keys don't cover (DB uses ?D/?M etc.)
+    "DP4D":   "pokemon-japanese-dawn-dash",
+    "DP4M":   "pokemon-japanese-moonlit-pursuit",
+    "DP5C":   "pokemon-japanese-cry-from-the-mysterious",
+    "DP5T":   "pokemon-japanese-temple-of-anger",
+    "DPP":    "pokemon-japanese-promo",
+    # Platinum era
+    # PT1 ギンガの覇道 = "Galactic Conquest" — verified not on PC as of
+    # 2026-05-13 (galactic, galactic-conquest, galactic-domination, etc.).
+    "PT2":    "pokemon-japanese-bonds-to-the-end-of-time",
+    "PT3":    "pokemon-japanese-beat-of-the-frontier",
+    "PT4":    "pokemon-japanese-advent-of-arceus",
+    "PTP":    "pokemon-japanese-promo",
+    # Legend (LV.X / pre-BW)
+    "LP":     "pokemon-japanese-promo",
+    # SWSH-era S* prefix — DB uses S12/S12a (not SWSH12/SWSH12A)
+    "S12":    "pokemon-japanese-paradigm-trigger",
+    "S12a":   "pokemon-japanese-vstar-universe",
+    # XY11 split — XY11C 冷酷の反逆者 "Cruel Traitor" verified.
+    # XY11F 爆熱の闘士 "Burning Warriors" — not on PC (search returned
+    # red-flash which is XY8a, not XY11F).
+    "XY11C":  "pokemon-japanese-cruel-traitor",
+    # Promos
+    "PCGP":   "pokemon-japanese-promo",
+    "SM1P":   "pokemon-japanese-promo",
 }
 
 
@@ -222,12 +272,14 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--set-id")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--verbose", action="store_true",
+                    help="Print URL fetched, sample PC rows, and per-set match counts by strategy")
     args = ap.parse_args()
 
     print("1. Querying D1 for unpriced JA cards in PC-mapped sets...")
     sids = list(SET_TO_PC_SLUG.keys()) if not args.set_id else [args.set_id]
     in_clause = ",".join(f"'{sid}'" for sid in sids)
-    sql = (f"SELECT card_id, name, set_id, local_id FROM ptcg_cards "
+    sql = (f"SELECT card_id, name, name_en, set_id, local_id FROM ptcg_cards "
            f"WHERE lang='ja' AND set_id IN ({in_clause}) "
            f"AND (price_source IS NULL OR price_source='cardmarket') "
            f"ORDER BY set_id, local_id")
@@ -243,13 +295,27 @@ def main() -> None:
         slug = SET_TO_PC_SLUG.get(sid)
         if not slug:
             continue
+        if args.verbose:
+            print(f"   [{sid}] fetching {BASE}/console/{slug}")
         try:
             pc_cards = _fetch_set_cards(slug)
         except Exception as e:
             print(f"   [{sid}] FAIL: {e}")
             continue
-        ms = match_set(set_cards, pc_cards, sid)
-        print(f"   [{sid} → {slug}] {len(set_cards)} cards, {len(pc_cards)} PC entries → {len(ms)} priced")
+        if args.verbose and pc_cards:
+            sample = pc_cards[:3]
+            print(f"   [{sid}]   first PC rows: " + "; ".join(
+                f"{c['name']}#{c['number']} (${c['price']})" for c in sample))
+            sample_locals = sorted({c['local_id'] for c in set_cards})[:5]
+            sample_pc_nums = sorted({c['number'] for c in pc_cards if c['number']})[:5]
+            print(f"   [{sid}]   D1 local_ids sample: {sample_locals}")
+            print(f"   [{sid}]   PC numbers sample:   {sample_pc_nums}")
+        ms, stats = match_set(set_cards, pc_cards, sid, verbose=args.verbose)
+        if args.verbose:
+            print(f"   [{sid} → {slug}] {len(set_cards)} cards, {len(pc_cards)} PC entries "
+                  f"→ {len(ms)} priced (num={stats['by_number']}, name={stats['by_name']})")
+        else:
+            print(f"   [{sid} → {slug}] {len(set_cards)} cards, {len(pc_cards)} PC entries → {len(ms)} priced")
         matches.extend(ms)
         time.sleep(1.0)  # polite to PriceCharting
 
@@ -331,20 +397,37 @@ def _fetch_set_cards(slug: str) -> list[dict]:
     return cards
 
 
-def match_set(set_cards: list[dict], pc_cards: list[dict], set_id: str) -> list[dict]:
-    """Match each card to a PC entry by (number, name)."""
-    # Index PC cards by normalized number
+def match_set(set_cards: list[dict], pc_cards: list[dict], set_id: str,
+              verbose: bool = False) -> tuple[list[dict], dict]:
+    """Match each card to a PC entry by (number, name).
+
+    Returns (matches, stats) where stats counts which strategy succeeded.
+    Some vintage JP sets (neo1/2/3, e-Card 2/3/5, Topsun) print Pokedex
+    numbers on the cards instead of set positions — PC scrapes those
+    numbers verbatim, so D1's set-position `local_id` will never align.
+    For those, the name-based fallback (against `name_en`) recovers
+    matches that pure-number matching can't.
+    """
     by_num: dict[str, list[dict]] = defaultdict(list)
     for p in pc_cards:
         if p["number"]:
             by_num[_norm_num(p["number"])].append(p)
 
+    by_name: dict[str, list[dict]] = defaultdict(list)
+    for p in pc_cards:
+        nk = _norm_name(p["name"])
+        if nk:
+            by_name[nk].append(p)
+
+    stats = {"by_number": 0, "by_name": 0}
+    used_product_ids: set[str] = set()
     out = []
     for c in set_cards:
+        # Strategy 1: numeric match on local_id (works when PC's # is set
+        # position, which is most modern sets).
         target = _norm_num(c["local_id"])
         candidates = by_num.get(target, [])
         if not candidates:
-            # Try with leading-zero / alpha stripping variations
             for variant in [
                 c["local_id"].lstrip("0").lower(),
                 re.sub(r"^[A-Za-z]+", "", c["local_id"]).lstrip("0"),
@@ -353,22 +436,56 @@ def match_set(set_cards: list[dict], pc_cards: list[dict], set_id: str) -> list[
                 if variant and variant in by_num:
                     candidates = by_num[variant]
                     break
-        if not candidates:
+
+        matched_by = None
+        if candidates:
+            best = candidates[0]
+            matched_by = "by_number"
+        else:
+            # Strategy 2: name fallback. Only fires when name_en is set on
+            # the D1 row (true for ~75% of neo1-3 and e-Card 2/3/5 rows).
+            name_key = _norm_name(c.get("name_en") or "")
+            if name_key:
+                name_cands = [p for p in by_name.get(name_key, [])
+                              if p["product_id"] not in used_product_ids]
+                if name_cands:
+                    best = name_cands[0]
+                    matched_by = "by_name"
+                    if verbose:
+                        print(f"      name-match: {c['card_id']} ({c.get('name_en')!r}) "
+                              f"-> {best['name']!r} #${best['price']}")
+
+        if matched_by is None:
             continue
-        # Prefer first candidate (PC sorts by relevance)
-        best = candidates[0]
+        used_product_ids.add(best["product_id"])
+        stats[matched_by] += 1
         out.append({
             "card_id": c["card_id"],
             "price_usd": round(best["price"], 2),
             "pc_name": best["name"],
             "pc_url": best["url"],
             "pc_product_id": best["product_id"],
+            "matched_by": matched_by,
         })
-    return out
+    return out, stats
 
 
 def _norm_num(s: str) -> str:
     return s.lstrip("0").lower() or "0"
+
+
+# Strip bracket annotations ("[1st Edition]", "[Holo]") and lowercase so
+# "Reshiram [15th Anniversary]" and "Reshiram" hash to the same key.
+_NAME_BRACKETS = re.compile(r"\s*\[[^\]]*\]\s*")
+_NAME_PUNCT = re.compile(r"[^a-z0-9]+")
+
+
+def _norm_name(s: str) -> str:
+    if not s:
+        return ""
+    s = _NAME_BRACKETS.sub(" ", s).lower()
+    s = _NAME_PUNCT.sub("", s)
+    return s
 
 
 def query_d1(sql: str) -> list[dict]:

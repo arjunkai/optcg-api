@@ -52,6 +52,17 @@ function isPocketSet(setId) {
 // initialization`. Verified 2026-05-05 by run 25394358490.
 const PRESERVE_IF_EXCLUDED_NULL = new Set(['image_high', 'image_low', 'name_en']);
 
+// Columns that hold layered JSON we accumulate from multiple sources.
+// On conflict we MERGE rather than replace, so backfilled keys
+// (`pricecharting`, `yuyutei`, `hareruya`) survive a TCGdex re-ingest that
+// only carries `cardmarket`/`tcgplayer`. RFC 7396 merge via SQLite
+// `json_patch()`: non-null keys in the patch overwrite, null keys would
+// DELETE — so the value side is pre-stripped of nulls in `cardUpsert()`.
+// Without this, the weekly cron wipes everything backfill scripts wrote
+// (verified 2026-05-13: 783 PC + 1254 yuyutei + 923 hareruya rows in this
+// state, with `price_source` set but the matching JSON key missing).
+const JSON_MERGE_KEYS = new Set(['pricing_json']);
+
 const args = parseArgs(process.argv.slice(2));
 const langs = args.lang ? [args.lang] : ALL_LANGS;
 const dryRun = args['dry-run'] === 'true';
@@ -186,7 +197,7 @@ function cardUpsert(card, lang) {
     JSON.stringify(variants),
     imageBase ? `${imageBase}/low.webp` : null,
     imageBase ? `${imageBase}/high.webp` : null,
-    JSON.stringify(card.pricing ?? {}),
+    JSON.stringify(stripNullPricing(card.pricing)),
     null, // dominant_color — populated by future backfill
     JSON.stringify(card),
   ];
@@ -217,11 +228,30 @@ function upsert(table, cols, vals, pkCols) {
           // updates still flow through whenever they DO carry an image.
           return `${c}=COALESCE(excluded.${c}, ${c})`;
         }
+        if (JSON_MERGE_KEYS.has(c)) {
+          // RFC 7396 merge — fresh keys overwrite, absent keys preserved.
+          // Pre-stripping nulls (see stripNullPricing) keeps TCGdex
+          // empties from deleting backfilled keys.
+          return `${c}=json_patch(COALESCE(${c}, '{}'), excluded.${c})`;
+        }
         return `${c}=excluded.${c}`;
       }).join(', ') + `, updated_at=strftime('%s','now')`
     : `updated_at=strftime('%s','now')`;
   const conflict = pkCols.join(', ');
   return `INSERT INTO ${table} (${colList}) VALUES (${placeholders}) ON CONFLICT(${conflict}) DO UPDATE SET ${updateClause};`;
+}
+
+// TCGdex returns `pricing: { cardmarket: null, tcgplayer: null }` for
+// cards it has no data on. Passed through json_patch, those nulls would
+// DELETE existing cardmarket/tcgplayer keys (RFC 7396 semantics). Drop
+// null-valued entries so the patch is a no-op for missing sources.
+function stripNullPricing(pricing) {
+  if (!pricing || typeof pricing !== 'object') return {};
+  const out = {};
+  for (const [k, v] of Object.entries(pricing)) {
+    if (v != null) out[k] = v;
+  }
+  return out;
 }
 
 function escSql(val) {
