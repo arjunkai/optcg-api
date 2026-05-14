@@ -276,3 +276,65 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-ptcg-manual-prices.js
+
+      # Coverage snapshot — surfaces "what did this run actually do" in
+      # the workflow logs so a silently-failing source is visible at a
+      # glance instead of requiring a manual D1 query. Counts are also
+      # piped to the Discord notify step below.
+      - name: Report PTCG pricing coverage
+        id: coverage
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          SQL="SELECT lang, COUNT(*) AS total, SUM(CASE WHEN price_source IS NOT NULL THEN 1 ELSE 0 END) AS priced FROM ptcg_cards GROUP BY lang ORDER BY lang"
+          OUT=$(npx wrangler d1 execute optcg-cards --remote --json --command "$SQL" 2>&1 || echo '{}')
+          echo "$OUT"
+          # Pull priced counts per lang into individual outputs for the notify step.
+          EN=$(echo "$OUT" | python3 -c "import json,sys; d=json.load(sys.stdin); rows=d[0]['results'] if isinstance(d,list) else d.get('results',[]); print(next((r['priced'] for r in rows if r.get('lang')=='en'),0))" 2>/dev/null || echo 0)
+          JA=$(echo "$OUT" | python3 -c "import json,sys; d=json.load(sys.stdin); rows=d[0]['results'] if isinstance(d,list) else d.get('results',[]); print(next((r['priced'] for r in rows if r.get('lang')=='ja'),0))" 2>/dev/null || echo 0)
+          echo "en_priced=$EN" >> "$GITHUB_OUTPUT"
+          echo "ja_priced=$JA" >> "$GITHUB_OUTPUT"
+          echo "## PTCG coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo "EN priced: $EN | JA priced: $JA" >> "$GITHUB_STEP_SUMMARY"
+
+      # Purge Cloudflare edge cache for /cards/index and /pokemon/cards/*
+      # responses so the fresh D1 data is visible to users immediately
+      # instead of waiting 1h fresh + 24h stale-while-revalidate to roll
+      # over. continue-on-error so a cache API blip doesn't fail the run.
+      - name: Purge Cloudflare edge cache
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_ZONE_ID" ]; then
+            echo "CLOUDFLARE_ZONE_ID not set — skipping cache purge (Workers.dev URLs aren't zone-cached anyway)"
+            exit 0
+          fi
+          curl -sX POST "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE_ID/purge_cache" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"prefixes":["optcg-api.arjunbansal-ai.workers.dev/cards/","optcg-api.arjunbansal-ai.workers.dev/pokemon/"]}'
+          echo
+
+      # Discord ping with the coverage numbers + a link to the run. Posts
+      # regardless of success/failure (if: always()) so a silently-killed
+      # earlier job still surfaces. continue-on-error so a webhook outage
+      # doesn't fail the cron.
+      - name: Notify Discord
+        if: always()
+        continue-on-error: true
+        env:
+          DISCORD_CRON_WEBHOOK: ${{ secrets.DISCORD_CRON_WEBHOOK }}
+          EN_PRICED: ${{ steps.coverage.outputs.en_priced }}
+          JA_PRICED: ${{ steps.coverage.outputs.ja_priced }}
+        run: |
+          if [ -z "$DISCORD_CRON_WEBHOOK" ]; then
+            echo "DISCORD_CRON_WEBHOOK not set — skipping"; exit 0
+          fi
+          STATUS_ICON=$([ "${{ job.status }}" = "success" ] && echo ":white_check_mark:" || echo ":warning:")
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sX POST "$DISCORD_CRON_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\":\"$STATUS_ICON Weekly PTCG refresh finished\\nEN priced: \`${EN_PRICED:-?}\` | JA priced: \`${JA_PRICED:-?}\`\\n<$RUN_URL>\"}"

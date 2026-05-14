@@ -141,3 +141,54 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-manual-prices.js
+
+      # Coverage snapshot — same pattern as ptcg-refresh.yml, so silently-
+      # failing sources show up in the workflow summary instead of hiding
+      # behind continue-on-error.
+      - name: Report OPTCG pricing coverage
+        id: coverage
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          SQL="SELECT COUNT(*) AS total, SUM(CASE WHEN price IS NOT NULL THEN 1 ELSE 0 END) AS priced FROM cards"
+          OUT=$(npx wrangler d1 execute optcg-cards --remote --json --command "$SQL" 2>&1 || echo '{}')
+          echo "$OUT"
+          PRICED=$(echo "$OUT" | python3 -c "import json,sys; d=json.load(sys.stdin); rows=d[0]['results'] if isinstance(d,list) else d.get('results',[]); print(rows[0].get('priced',0) if rows else 0)" 2>/dev/null || echo 0)
+          TOTAL=$(echo "$OUT" | python3 -c "import json,sys; d=json.load(sys.stdin); rows=d[0]['results'] if isinstance(d,list) else d.get('results',[]); print(rows[0].get('total',0) if rows else 0)" 2>/dev/null || echo 0)
+          echo "priced=$PRICED" >> "$GITHUB_OUTPUT"
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+          echo "## OPTCG coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo "Priced: $PRICED / $TOTAL" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Purge Cloudflare edge cache
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_ZONE_ID" ]; then
+            echo "CLOUDFLARE_ZONE_ID not set — skipping cache purge"; exit 0
+          fi
+          curl -sX POST "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE_ID/purge_cache" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"prefixes":["optcg-api.arjunbansal-ai.workers.dev/cards/","optcg-api.arjunbansal-ai.workers.dev/sets/"]}'
+          echo
+
+      - name: Notify Discord
+        if: always()
+        continue-on-error: true
+        env:
+          DISCORD_CRON_WEBHOOK: ${{ secrets.DISCORD_CRON_WEBHOOK }}
+          PRICED: ${{ steps.coverage.outputs.priced }}
+          TOTAL: ${{ steps.coverage.outputs.total }}
+        run: |
+          if [ -z "$DISCORD_CRON_WEBHOOK" ]; then
+            echo "DISCORD_CRON_WEBHOOK not set — skipping"; exit 0
+          fi
+          STATUS_ICON=$([ "${{ job.status }}" = "success" ] && echo ":white_check_mark:" || echo ":warning:")
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sX POST "$DISCORD_CRON_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\":\"$STATUS_ICON Weekly OPTCG scrape finished\\nPriced: \`${PRICED:-?}/${TOTAL:-?}\`\\n<$RUN_URL>\"}"
