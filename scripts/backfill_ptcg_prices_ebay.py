@@ -111,6 +111,14 @@ def main() -> None:
                     help="Randomize card order before --limit. Recommended for "
                          "smoke tests so the sample isn't biased toward the "
                          "alphabetically-first cohort (vintage ADV1/ADV3 etc).")
+    ap.add_argument("--with-translation-fallback", action="store_true",
+                    help="When the JP→EN dictionaries can't resolve a card, "
+                         "fall back to eBay Commerce Translation. Off by "
+                         "default because JP Pokemon names aren't always "
+                         "direct translations (リザードン phonetic-translates "
+                         "to 'Rizardon', not 'Charizard') — the listing "
+                         "filter catches most bad translations downstream, "
+                         "but staying off is the no-risk path.")
     args = ap.parse_args()
 
     # Cursor only applies in plain production mode. --shuffle randomizes
@@ -166,10 +174,12 @@ def main() -> None:
     print("3. Pricing cards via eBay...")
     matches: list[dict] = []
     last_processed_card_id: str | None = None
+    translate_client = client if args.with_translation_fallback else None
     for i, card in enumerate(cards, start=1):
         result = price_card(client, card, args.lang, marketplace, target_currency,
                             fx_jpy_to_usd, min_count=args.min_count,
-                            verbose_skip=(args.dry_run and len(cards) <= 100))
+                            verbose_skip=(args.dry_run and len(cards) <= 100),
+                            translate_client=translate_client)
         if result:
             matches.append(result)
             print(f"   [{i}/{len(cards)}] {card['card_id']}: ${result['price_usd']} "
@@ -464,11 +474,14 @@ def is_relevant_listing(title: str, en_name: str, local_id: str) -> bool:
 
 def price_card(client: EbayClient, card: dict, lang: str, marketplace: str,
                target_currency: str, fx_jpy_to_usd: float, *, min_count: int,
-               verbose_skip: bool = False) -> dict | None:
+               verbose_skip: bool = False,
+               translate_client: EbayClient | None = None) -> dict | None:
     # JA cards go through the strict-relevance path. Skip cards we can't
     # translate — submitting "japanese pokemon" alone would match noise.
+    # translate_client is None unless --with-translation-fallback was set,
+    # so the dictionary path is the only resolver by default.
     if lang == "ja":
-        en_name = _to_en_name(card, client=client)
+        en_name = _to_en_name(card, client=translate_client)
         if not en_name:
             if verbose_skip:
                 print(f"   [skip] {card['card_id']}: no JP-to-EN translation available")
