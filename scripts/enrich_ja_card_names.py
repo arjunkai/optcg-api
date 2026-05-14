@@ -37,6 +37,18 @@ TCGDEX_EN = "https://api.tcgdex.net/v2/en/cards/{card_id}"
 TCGDEX_JA = "https://api.tcgdex.net/v2/ja/cards/{card_id}"
 WRANGLER = ["node", "./node_modules/wrangler/bin/wrangler.js", "d1", "execute", "optcg-cards"]
 
+# Known card_ids where the tier-1 EN lookup returns a wrong species. The
+# tier-1 logic assumes `card_id is identical in EN and JA TCGdex catalogs
+# = same card`, but a handful of sets diverge (different ordering, or one
+# language assigns the same numeric id to a different Pokemon). Manual
+# entries here always win over both tier-1 and tier-2 lookups.
+# Verified 2026-05-13 by spot-check (search for "charmander" in JP scope
+# returned Golem at DP3-82 because TCGdex EN DP3-82 maps to Charmander
+# while JA DP3-82 is Golem).
+MANUAL_OVERRIDES: dict[str, str] = {
+    "DP3-82": "Golem",
+}
+
 
 def main() -> None:
     import argparse
@@ -80,7 +92,13 @@ def main() -> None:
     headers = {"User-Agent": "OPBindr/1.0"}
     for i, row in enumerate(rows, 1):
         cid = row["card_id"]
-        if cid in cache and cache[cid]:
+        if cid in cache and cache[cid] and cid not in MANUAL_OVERRIDES:
+            continue
+        # Manual overrides for known cross-language card_id collisions
+        # always win — see MANUAL_OVERRIDES comment above.
+        if cid in MANUAL_OVERRIDES:
+            cache[cid] = MANUAL_OVERRIDES[cid]
+            new_count += 1
             continue
         en_name = ""
         # Tier 1: TCGdex EN endpoint — works for cards released in both
