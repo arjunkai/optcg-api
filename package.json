@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "key:issue": "node scripts/issue-key.mjs",
+    "key:list": "node scripts/list-keys.mjs",
+    "key:revoke": "node scripts/revoke-key.mjs"
   },
   "dependencies": {
     "hono": "^4.0.0"

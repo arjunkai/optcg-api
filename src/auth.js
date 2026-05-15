@@ -7,6 +7,17 @@
 // stays discoverable and binder thumbnails shared on Discord/Twitter still
 // render cleanly.
 //
+// API key storage:
+//   * Keys live in the D1 `api_keys` table (migration 013). Only the
+//     SHA-256 hash is stored. Issuance via scripts/issue-key.mjs prints
+//     the raw key once and never again.
+//   * `key_prefix` (first 12 chars: `opt_xxxxxxxx`) is what we use as the
+//     identifier for rate limiting and the api_key_usage daily counter.
+//     Safe to log / display, not enough to authenticate alone.
+//   * env.API_KEYS (legacy comma-separated env var) still works as a
+//     transition fallback; logs a warning when used. Remove once all
+//     active keys are migrated into D1.
+//
 // Rate limiting (X-API-Key callers only — OPBindr's CORS path is unaffected):
 //   * 300 req/min via the native Workers Rate Limit binding (RL_MINUTE).
 //   * 100k req/day via Cache API counter, lazy-flushed to D1 (api_key_usage)
@@ -42,6 +53,7 @@ const PUBLIC_EXACT = new Set([
 
 const DAILY_LIMIT = 100_000;
 const DAILY_FLUSH_EVERY = 60;
+const LAST_USED_THROTTLE_S = 60;
 
 function isPublicPath(pathname) {
   if (PUBLIC_EXACT.has(pathname)) return true;
@@ -60,11 +72,26 @@ function isAllowedOrigin(origin) {
   return false;
 }
 
-function matchApiKey(provided, allKeys) {
-  if (!provided || !allKeys) return null;
-  const trimmed = provided.trim();
+async function sha256Hex(text) {
+  const bytes = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest('SHA-256', bytes);
+  const arr = Array.from(new Uint8Array(buf));
+  return arr.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Look up an active key by its SHA-256 hash. Returns { key_prefix, tier }
+// or null. Filters status='active' so revoked rows are never honoured.
+async function lookupKey(db, hash) {
+  if (!db) return null;
+  return await db.prepare(
+    "SELECT key_prefix, tier FROM api_keys WHERE key_hash = ? AND status = 'active'"
+  ).bind(hash).first();
+}
+
+function matchEnvVarKey(provided, allKeys) {
+  if (!provided || !allKeys) return false;
   const keys = allKeys.split(',').map(k => k.trim()).filter(Boolean);
-  return keys.includes(trimmed) ? trimmed : null;
+  return keys.includes(provided);
 }
 
 function secondsUntilUtcMidnight() {
@@ -74,12 +101,13 @@ function secondsUntilUtcMidnight() {
   return Math.ceil((next.getTime() - now.getTime()) / 1000);
 }
 
-// Best-effort per-key daily counter. Cache API per-colo so a key fanning
-// across many CF data centers can drift over the limit slightly — the D1
-// flush gives cross-colo visibility on the next minute boundary.
-async function bumpDailyCount(c, apiKey) {
+// Best-effort per-key daily counter, keyed on the key_prefix (not the
+// raw key). Cache API is per-colo, so a key fanning across many CF data
+// centers can drift slightly over the cap — the D1 flush gives cross-
+// colo visibility on the next minute boundary.
+async function bumpDailyCount(c, prefix) {
   const today = new Date().toISOString().slice(0, 10);
-  const cacheKey = new Request(`https://rl.local/daily/${encodeURIComponent(apiKey)}/${today}`);
+  const cacheKey = new Request(`https://rl.local/daily/${encodeURIComponent(prefix)}/${today}`);
   const cache = caches.default;
   const cached = await cache.match(cacheKey);
   const prev = cached ? parseInt(await cached.text(), 10) || 0 : 0;
@@ -99,11 +127,28 @@ async function bumpDailyCount(c, apiKey) {
         'ON CONFLICT(api_key, day) DO UPDATE SET ' +
         '  count = MAX(api_key_usage.count, excluded.count), ' +
         '  updated_at = excluded.updated_at'
-      ).bind(apiKey, today, count, Date.now()).run().catch(() => {})
+      ).bind(prefix, today, count, Date.now()).run().catch(() => {})
     );
   }
 
   return count;
+}
+
+// Update last_used_at on the api_keys row, throttled to once per
+// LAST_USED_THROTTLE_S seconds per key so we don't burn D1 writes.
+async function touchLastUsed(c, keyHash) {
+  if (!c.env?.DB) return;
+  const cacheKey = new Request(`https://rl.local/lastused/${keyHash}`);
+  const cache = caches.default;
+  const cached = await cache.match(cacheKey);
+  if (cached) return;
+  c.executionCtx.waitUntil(Promise.all([
+    c.env.DB.prepare('UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?')
+      .bind(Date.now(), keyHash).run().catch(() => {}),
+    cache.put(cacheKey, new Response('1', {
+      headers: { 'Cache-Control': `max-age=${LAST_USED_THROTTLE_S}` },
+    })),
+  ]));
 }
 
 // Hono middleware. Place this BEFORE the route registrations.
@@ -128,13 +173,27 @@ export function gate() {
 
     // No Origin header — server-to-server caller. Require an API key.
     const provided = c.req.header('x-api-key');
-    const apiKey = matchApiKey(provided, c.env?.API_KEYS);
-    if (!apiKey) {
+    if (!provided) {
+      return c.json({ error: 'api key required' }, 401);
+    }
+    const trimmed = provided.trim();
+    const hash = await sha256Hex(trimmed);
+
+    let keyRow = await lookupKey(c.env?.DB, hash);
+
+    // Transition fallback for keys still in the legacy comma-separated
+    // env var. Remove env.API_KEYS once everything is migrated to D1.
+    if (!keyRow && matchEnvVarKey(trimmed, c.env?.API_KEYS)) {
+      console.warn('legacy env-var key used, migrate to D1 (issue-key.mjs)');
+      keyRow = { key_prefix: trimmed.slice(0, 12), tier: 'standard' };
+    }
+
+    if (!keyRow) {
       return c.json({ error: 'api key required' }, 401);
     }
 
     if (c.env?.RL_MINUTE) {
-      const { success } = await c.env.RL_MINUTE.limit({ key: apiKey });
+      const { success } = await c.env.RL_MINUTE.limit({ key: keyRow.key_prefix });
       if (!success) {
         return c.json(
           { error: 'rate_limited', detail: 'per-minute cap exceeded (300/min)' },
@@ -144,7 +203,7 @@ export function gate() {
       }
     }
 
-    const dailyCount = await bumpDailyCount(c, apiKey);
+    const dailyCount = await bumpDailyCount(c, keyRow.key_prefix);
     if (dailyCount > DAILY_LIMIT) {
       return c.json(
         { error: 'daily_quota_exceeded', limit: DAILY_LIMIT, count: dailyCount },
@@ -153,6 +212,7 @@ export function gate() {
       );
     }
 
+    await touchLastUsed(c, hash);
     await next();
   };
 }
