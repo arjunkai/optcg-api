@@ -37,17 +37,21 @@ const ALLOWED_REGEX = [
 ];
 
 // Path prefixes that bypass the gate entirely. These are the discoverable /
-// public-facing endpoints that need to work without auth.
+// public-facing endpoints that need to work without auth. /images/* stays
+// public so binder thumbnails shared on Discord/Twitter render cleanly.
 const PUBLIC_PREFIXES = [
   '/images/',          // OPTCG image proxy
   '/pokemon/images/',  // Future PTCG image proxy (Phase 2.2)
 ];
 
-// Exact public paths.
+// Exact public paths. /docs is intentionally public and serves a
+// "request access" landing page rather than the real schema — see
+// src/docs.js. /openapi.json is NOT in this set: it requires a valid
+// X-API-Key so anonymous visitors can't enumerate endpoints, parameters,
+// or response shapes.
 const PUBLIC_EXACT = new Set([
   '/',
   '/docs',
-  '/openapi.json',
   '/healthz',
 ]);
 

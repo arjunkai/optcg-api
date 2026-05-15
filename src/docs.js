@@ -206,18 +206,79 @@ export function registerDocsRoutes(app) {
     });
   });
 
-  // Scalar docs UI
+  // /docs is intentionally a static "request access" landing page.
+  // The real Scalar viewer used to live here and read /openapi.json,
+  // but that let anyone browsing the URL enumerate every endpoint,
+  // parameter, and response schema without holding a key. Now the
+  // OpenAPI document itself is gated behind X-API-Key (see src/auth.js)
+  // and keyholders are expected to fetch it via curl / Postman /
+  // Insomnia / Scalar-CLI and view it in their own tool of choice.
   app.get('/docs', (c) => {
     return c.html(`<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>OPTCG API Docs</title>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OPTCG API — Access Required</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      background: #0d0d0d;
+      color: #e5e7eb;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      max-width: 560px;
+      background: #111;
+      border: 1px solid #2a2a2a;
+      border-radius: 16px;
+      padding: 40px;
+    }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    p { color: #9ca3af; line-height: 1.6; margin: 12px 0; }
+    .cta {
+      display: inline-block;
+      margin-top: 16px;
+      padding: 10px 18px;
+      background: #3b82f6;
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: 600;
+    }
+    .cta:hover { background: #2563eb; }
+    code {
+      background: #1a1a1a;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #C9A84C;
+    }
+    .keyholder {
+      margin-top: 28px;
+      padding-top: 20px;
+      border-top: 1px solid #2a2a2a;
+      font-size: 14px;
+    }
+    .keyholder p { font-size: 14px; }
+  </style>
 </head>
 <body>
-    <script id="api-reference" data-url="/openapi.json"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+  <div class="card">
+    <h1>OPTCG API</h1>
+    <p>A private REST API for One Piece TCG card data and prices. Access is granted on a per-project basis after a short review.</p>
+    <a class="cta" href="https://opbindr.com/resources">Request access</a>
+    <div class="keyholder">
+      <p><strong>Already have a key?</strong> Fetch the OpenAPI spec with your <code>X-API-Key</code> header and import it into any OpenAPI viewer (Scalar, Swagger UI, Postman, Insomnia).</p>
+      <p><code>curl -H "X-API-Key: opt_your_key" https://optcg-api.arjunbansal-ai.workers.dev/openapi.json</code></p>
+    </div>
+  </div>
 </body>
 </html>`);
   });
