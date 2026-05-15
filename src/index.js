@@ -37,20 +37,20 @@ app.use('*', cors({
 
 app.use('*', gate());
 
+// Root is public so /docs has somewhere to send curious visitors. Don't
+// enumerate the route surface here — keyholders read /openapi.json, the
+// rest get pointed at /docs to request access.
 app.get('/', (c) => {
   return c.json({
     name: 'OPTCG API',
     version: '1.0.0',
     docs: '/docs',
-    endpoints: [
-      'GET /sets',
-      'GET /sets/{id}/cards',
-      'GET /cards',
-      'GET /cards/{id}',
-      'GET /cards/{id}/price-history',
-      'GET /images/{card_id}',
-    ],
+    access: 'https://forms.gle/56bcJgdKKSVRzjtA7',
   });
+});
+
+app.get('/healthz', (c) => {
+  return c.json({ ok: true, ts: Date.now() });
 });
 
 registerSetRoutes(app);
