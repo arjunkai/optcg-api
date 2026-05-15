@@ -16,3 +16,12 @@ bucket_name = "optcg-images"
 #   "abc123def456,ghi789jkl012". Required only for non-browser callers
 #   (curl, server-to-server). Browser callers go through the CORS
 #   Origin allowlist in src/auth.js and don't need a key.
+
+# Per-API-key rate limit. GA Sept 2025, free-tier compatible.
+# 300 req/min per X-API-Key. Daily 100k cap lives in src/auth.js
+# (Cache API + D1 lazy-flush) since the binding only supports 10s/60s.
+[[unsafe.bindings]]
+name = "RL_MINUTE"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 300, period = 60 }
