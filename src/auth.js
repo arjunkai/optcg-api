@@ -79,13 +79,28 @@ async function sha256Hex(text) {
   return arr.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Look up an active key by its SHA-256 hash. Returns { key_prefix, tier }
-// or null. Filters status='active' so revoked rows are never honoured.
+// Look up an active key by its SHA-256 hash. Returns
+// { key_prefix, tier, scopes } or null. Filters status='active' so
+// revoked rows are never honoured.
 async function lookupKey(db, hash) {
   if (!db) return null;
   return await db.prepare(
-    "SELECT key_prefix, tier FROM api_keys WHERE key_hash = ? AND status = 'active'"
+    "SELECT key_prefix, tier, scopes FROM api_keys WHERE key_hash = ? AND status = 'active'"
   ).bind(hash).first();
+}
+
+// Map a request path to the scope the caller's key must hold.
+// `/pokemon/*` authenticated routes require 'ptcg'; everything else
+// requires 'optcg'. Public paths bypass this check entirely (see
+// isPublicPath above).
+function requiredScope(pathname) {
+  if (pathname.startsWith('/pokemon/')) return 'ptcg';
+  return 'optcg';
+}
+
+function hasScope(scopesStr, required) {
+  if (!scopesStr) return false;
+  return scopesStr.split(',').map(s => s.trim()).filter(Boolean).includes(required);
 }
 
 function matchEnvVarKey(provided, allKeys) {
@@ -183,13 +198,23 @@ export function gate() {
 
     // Transition fallback for keys still in the legacy comma-separated
     // env var. Remove env.API_KEYS once everything is migrated to D1.
+    // Legacy keys get all scopes for backward compatibility — issue new
+    // scoped keys via issue-key.mjs and revoke env-var keys when done.
     if (!keyRow && matchEnvVarKey(trimmed, c.env?.API_KEYS)) {
       console.warn('legacy env-var key used, migrate to D1 (issue-key.mjs)');
-      keyRow = { key_prefix: trimmed.slice(0, 12), tier: 'standard' };
+      keyRow = { key_prefix: trimmed.slice(0, 12), tier: 'standard', scopes: 'optcg,ptcg' };
     }
 
     if (!keyRow) {
       return c.json({ error: 'api key required' }, 401);
+    }
+
+    const needed = requiredScope(url.pathname);
+    if (!hasScope(keyRow.scopes, needed)) {
+      return c.json(
+        { error: 'scope_required', detail: `key does not have ${needed} access` },
+        403
+      );
     }
 
     if (c.env?.RL_MINUTE) {
