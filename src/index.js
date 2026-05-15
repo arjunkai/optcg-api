@@ -6,6 +6,7 @@ import { registerImageRoutes } from './images.js';
 import { registerDocsRoutes } from './docs.js';
 import { gate } from './auth.js';
 import { registerPokemonRoutes } from './pokemon/index.js';
+import { checkUsageAlerts } from './cron.js';
 
 const CORS_ALLOWED_EXACT = [
   'https://opbindr.com',
@@ -58,4 +59,12 @@ registerImageRoutes(app);
 registerDocsRoutes(app);
 registerPokemonRoutes(app);
 
-export default app;
+// Exporting both fetch and scheduled lets wrangler treat this as a
+// Worker with both HTTP and cron entry points. The cron schedule is
+// defined in wrangler.toml [triggers].
+export default {
+  fetch: app.fetch,
+  scheduled: async (controller, env, ctx) => {
+    ctx.waitUntil(checkUsageAlerts(env));
+  },
+};
