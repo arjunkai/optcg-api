@@ -156,13 +156,15 @@ jobs:
         run: pip install -r requirements.txt
 
       # Refresh the JA → EN name map for any new JA cards that landed
-      # this week. Incremental — only resolves cards not already in the
-      # cached JSON. ptcg_cards.name_en gets repopulated by the next
-      # step. Skips with --all/--rebuild because those are reserved for
-      # manual one-shots after a logic fix.
+      # this week. `--all` scans every JA card; the script's resume
+      # logic only re-resolves entries not already in the cached JSON,
+      # so steady-state runs are fast. Primary tier is a local PokeAPI
+      # species hash lookup (no network per card), so this finishes in
+      # seconds-to-minutes even when cold. ptcg_cards.name_en gets
+      # repopulated by the next step.
       - name: Enrich JA name_en map (incremental)
         continue-on-error: true
-        run: python -m scripts.enrich_ja_card_names --all-unpriced
+        run: python -m scripts.enrich_ja_card_names --all
 
       - name: Push name_en updates to D1
         continue-on-error: true
