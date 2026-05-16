@@ -65,6 +65,19 @@ jobs:
           restore-keys: |
             ptcg-cache-
 
+      # JA name_en map drives latin-script search of Japanese cards
+      # (e.g. typing "Charmander" finds JA ヒトカゲ rows). Same rolling-
+      # cache pattern as the TCGdex cache — first run regenerates from
+      # scratch (~50 min for 24k cards), subsequent runs only resolve
+      # newly-imported cards (~seconds).
+      - name: Restore JA name_en cache
+        uses: actions/cache@v4
+        with:
+          path: data/ja_card_id_to_en_name.json
+          key: ptcg-name-en-${{ github.run_number }}
+          restore-keys: |
+            ptcg-name-en-
+
       - name: Update pokemontcg-data submodule
         run: |
           git submodule update --remote data/pokemontcg-data
@@ -134,13 +147,29 @@ jobs:
           POKEMONTCG_API_KEY: ${{ secrets.POKEMONTCG_API_KEY }}
         run: node scripts/fetch-pokemontcg-prices.js
 
-      - name: Setup Python (for eBay + Yuyutei + Hareruya)
+      - name: Setup Python (for eBay + Yuyutei + Hareruya + enrich)
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install Python deps
         run: pip install -r requirements.txt
+
+      # Refresh the JA → EN name map for any new JA cards that landed
+      # this week. Incremental — only resolves cards not already in the
+      # cached JSON. ptcg_cards.name_en gets repopulated by the next
+      # step. Skips with --all/--rebuild because those are reserved for
+      # manual one-shots after a logic fix.
+      - name: Enrich JA name_en map (incremental)
+        continue-on-error: true
+        run: python -m scripts.enrich_ja_card_names --all-unpriced
+
+      - name: Push name_en updates to D1
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/backfill-ptcg-name-en.js
 
       # Yuyutei (JP retailer) layered on top of pkmnbindr's catalog.
       # Runs BEFORE eBay JP because retail prices are more stable than
@@ -163,6 +192,35 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: python -m scripts.backfill_ptcg_prices_hareruya
+
+      # TCGCSV (community TCGPlayer mirror snapshot). Fills NULL rows
+      # pokemontcg.io / yuyutei / hareruya missed — same gate as every
+      # source, so claimed cards stay claimed. The May-13 manual run
+      # hit ~17k JA cards; wiring it here keeps that coverage from
+      # rotting as new cards enter via TCGdex.
+      - name: Backfill EN prices via TCGCSV (TCGPlayer mirror)
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m scripts.backfill_ptcg_prices_tcgcsv --lang=en
+
+      - name: Backfill JA prices via TCGCSV (TCGPlayer mirror)
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m scripts.backfill_ptcg_prices_tcgcsv --lang=ja
+
+      # PriceCharting closes the vintage JA tail (PCG / Holon / neo /
+      # ADV / e-Card / BS eras) that retail sources don't carry. NULL-
+      # only gate; the May-13 manual run captured ~3.8k vintage cards.
+      - name: Backfill JA vintage prices via PriceCharting
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m scripts.backfill_ptcg_prices_pricecharting
 
       - name: Backfill EN prices via eBay (US)
         continue-on-error: true

@@ -1,19 +1,26 @@
 """
-Pre-fetch canonical English names for JA cards. Two-tier lookup:
-  1. TCGdex /v2/en/cards/{id} — if the card was released in EN too,
-     this returns the canonical English name (works for trainers,
-     energies, and modern Pokemon).
-  2. Fallback to /v2/ja/cards/{id} dexId → PokeAPI species map (works
-     for JP-only Pokemon cards).
+Pre-fetch canonical English names for JA cards. Tiered lookup:
+  1. Hit TCGdex /v2/ja/cards/{id} to get the JA card's `dexId` list.
+     If it has one (i.e. the card is a Pokemon), map dexId[0] →
+     PokeAPI species name. This is COLLISION-PROOF — JA Charmander
+     and EN Entei may share `card_id=DP3-4` but they have different
+     dexIds, so the species map never confuses them.
+  2. For trainers / energies (no dexId), fall back to /v2/en/cards/{id}
+     and accept the EN name only if the EN row also has no dexId. If
+     EN has a dexId the IDs collide on different cards — reject and
+     leave en_name empty (better NULL than wrong).
 
 Output: data/ja_card_id_to_en_name.json {card_id: en_name}
 
 Used by both image and price backfill scripts as a fallback name
-source for JA cards.
+source for JA cards, and by scripts/backfill-ptcg-name-en.js to
+populate ptcg_cards.name_en in D1 (drives latin-script search of
+Japanese cards).
 
 Usage:
     python -m scripts.enrich_ja_card_names              # imageless cards
     python -m scripts.enrich_ja_card_names --all-unpriced  # all unpriced JA
+    python -m scripts.enrich_ja_card_names --all          # every JA card
 """
 
 from __future__ import annotations
@@ -55,13 +62,23 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--all-unpriced", action="store_true",
                     help="Enrich ALL JA cards needing prices (not just imageless)")
+    ap.add_argument("--all", action="store_true",
+                    help="Enrich every JA card in D1. Use after fixing a "
+                         "logic bug to refresh the whole mapping.")
+    ap.add_argument("--rebuild", action="store_true",
+                    help="Ignore the existing cache and re-resolve every "
+                         "card. Pair with --all after a logic fix to "
+                         "overwrite stale entries.")
     args = ap.parse_args()
 
     print("1. Loading National Dex → EN species name map from PokeAPI...")
     en_by_dex = _load_dex_to_en()
     print(f"   {len(en_by_dex)} species names")
 
-    if args.all_unpriced:
+    if args.all:
+        print("2. Querying D1 for ALL JA cards...")
+        sql = "SELECT card_id, name FROM ptcg_cards WHERE lang='ja' ORDER BY card_id"
+    elif args.all_unpriced:
         print("2. Querying D1 for ALL unpriced JA cards...")
         sql = ("SELECT card_id, name FROM ptcg_cards WHERE lang='ja' "
                "AND (price_source IS NULL OR price_source='cardmarket') "
@@ -81,18 +98,21 @@ def main() -> None:
     rows = json.loads(out.stdout[start:])[0]["results"]
     print(f"   {len(rows)} JA cards needing enrichment")
 
-    # Resume support: load existing cache
+    # Resume support: load existing cache (unless --rebuild)
     cache: dict[str, str] = {}
-    if OUT.exists():
+    if OUT.exists() and not args.rebuild:
         cache = json.loads(OUT.read_text(encoding="utf-8"))
         print(f"   Resume: {len(cache)} already cached")
+    elif args.rebuild and OUT.exists():
+        print(f"   --rebuild: ignoring existing cache, will overwrite")
 
-    print("3. Resolving EN names per card (TCGdex EN endpoint, then dexId fallback)...")
+    print("3. Resolving EN names per card (JA dexId → PokeAPI species, "
+          "fallback to EN endpoint for trainers/energies)...")
     new_count = 0
     headers = {"User-Agent": "OPBindr/1.0"}
     for i, row in enumerate(rows, 1):
         cid = row["card_id"]
-        if cid in cache and cache[cid] and cid not in MANUAL_OVERRIDES:
+        if not args.rebuild and cid in cache and cache[cid] and cid not in MANUAL_OVERRIDES:
             continue
         # Manual overrides for known cross-language card_id collisions
         # always win — see MANUAL_OVERRIDES comment above.
@@ -101,35 +121,47 @@ def main() -> None:
             new_count += 1
             continue
         en_name = ""
-        # Tier 1: TCGdex EN endpoint — works for cards released in both
-        # langs (covers modern trainers, energies, shared Pokemon)
+        ja_dex_ids: list[int] = []
+
+        # Tier 1: JA dexId → PokeAPI species. Pokemon cards always have
+        # a dexId; this path is collision-proof because the species
+        # name is derived from the Pokemon's national-dex identity,
+        # not from a card_id lookup against the EN catalog.
         try:
             req = urllib.request.Request(
-                TCGDEX_EN.format(card_id=urllib.parse.quote(cid)),
+                TCGDEX_JA.format(card_id=urllib.parse.quote(cid)),
                 headers=headers,
             )
             with urllib.request.urlopen(req, timeout=15) as r:
-                d = json.load(r)
-            en_name = (d.get("name") or "").strip()
-        except urllib.error.HTTPError as he:
-            if he.code != 404:
-                pass  # other transient errors — fall through to JA tier
+                d_ja = json.load(r)
+            ja_dex_ids = d_ja.get("dexId") or []
+            if ja_dex_ids:
+                en_name = en_by_dex.get(ja_dex_ids[0], "")
         except Exception:
             pass
-        # Tier 2: TCGdex JA endpoint — get dexId, look up species name
-        if not en_name:
+
+        # Tier 2: trainer / energy fallback. No dexId on either side
+        # → safe to accept the EN endpoint's name. If EN has a dexId
+        # but JA doesn't, the IDs collide on different kinds of cards
+        # (a Pokemon in EN, a trainer/energy in JA) — reject the EN
+        # name and leave NULL. Better unsearchable than mis-labelled.
+        if not en_name and not ja_dex_ids:
             try:
                 req = urllib.request.Request(
-                    TCGDEX_JA.format(card_id=urllib.parse.quote(cid)),
+                    TCGDEX_EN.format(card_id=urllib.parse.quote(cid)),
                     headers=headers,
                 )
                 with urllib.request.urlopen(req, timeout=15) as r:
-                    d = json.load(r)
-                dex_ids = d.get("dexId") or []
-                if dex_ids:
-                    en_name = en_by_dex.get(dex_ids[0], "")
+                    d_en = json.load(r)
+                en_dex_ids = d_en.get("dexId") or []
+                if not en_dex_ids:
+                    en_name = (d_en.get("name") or "").strip()
+            except urllib.error.HTTPError as he:
+                if he.code != 404:
+                    pass
             except Exception:
                 pass
+
         cache[cid] = en_name
         if en_name:
             new_count += 1

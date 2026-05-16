@@ -8,7 +8,10 @@
  *
  * Usage:
  *   node scripts/backfill-ptcg-name-en.js --dry-run    # write SQL but don't execute
- *   node scripts/backfill-ptcg-name-en.js              # execute against remote D1
+ *   node scripts/backfill-ptcg-name-en.js              # incremental — keeps existing name_en values (COALESCE)
+ *   node scripts/backfill-ptcg-name-en.js --force      # overwrite every JA name_en. Use after running
+ *                                                      # enrich_ja_card_names.py --rebuild to repair
+ *                                                      # stale or wrong values from prior bug fixes.
  *
  * Output: scripts/backfill_name_en/NNN.sql files (one per batch of 500
  * statements, same shape as ptcg-import-d1.js).
@@ -25,6 +28,7 @@ const BATCH_DIR = 'scripts/backfill_name_en';
 const BATCH_SIZE = 500;
 
 const dryRun = process.argv.includes('--dry-run');
+const force = process.argv.includes('--force');
 
 if (!existsSync(NAME_EN_PATH)) {
   console.error(`Missing ${NAME_EN_PATH}. Run scripts/enrich_ja_card_names.py first.`);
@@ -38,9 +42,14 @@ console.log(`Loaded ${entries.length} JA card_id → EN name pairs from ${NAME_E
 if (!existsSync(BATCH_DIR)) mkdirSync(BATCH_DIR, { recursive: true });
 
 const stmts = entries.map(([cardId, enName]) =>
-  // Keep existing name_en if a curator has already set one. Idempotent:
-  // re-runs after the column is populated are a no-op.
-  `UPDATE ptcg_cards SET name_en = COALESCE(name_en, ${escSql(enName)}) WHERE card_id = ${escSql(cardId)} AND lang = 'ja';`
+  // Default: keep existing name_en if already set (COALESCE) — idempotent
+  // re-runs for cron incremental updates.
+  // --force: overwrite. Reserved for recovery after enrich --rebuild
+  // when prior runs wrote wrong values (e.g. cross-region card_id
+  // collisions where DP3-4 JA Charmander got "Entei" from EN DP3-4).
+  force
+    ? `UPDATE ptcg_cards SET name_en = ${escSql(enName)} WHERE card_id = ${escSql(cardId)} AND lang = 'ja';`
+    : `UPDATE ptcg_cards SET name_en = COALESCE(name_en, ${escSql(enName)}) WHERE card_id = ${escSql(cardId)} AND lang = 'ja';`
 );
 
 const batchCount = Math.ceil(stmts.length / BATCH_SIZE);
