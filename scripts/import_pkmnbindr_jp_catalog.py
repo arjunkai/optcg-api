@@ -150,8 +150,10 @@ def main() -> None:
                 row = build_card_row(c, tcgdex_set)
                 if row is None:
                     continue
-                # Dedupe against existing D1 rows.
-                if (row["card_id"], "ja") in existing:
+                # Dedupe against existing D1 rows. Use normalized
+                # (upper-set, int-local-id) key so we catch SV4a-210
+                # already covering pkmnbindr's SV4A-210 candidate.
+                if normalized_key(row["set_id"], row["local_id"]) in existing:
                     continue
                 cards_inserts.append((
                     row["card_id"], "ja", row["set_id"], row["local_id"],
@@ -203,9 +205,16 @@ def main() -> None:
 
 
 def query_existing_card_ids() -> set[tuple[str, str]]:
-    """Pull every (card_id, 'ja') tuple already in D1 so we can dedupe
-    cheaply in memory before constructing the INSERT batch."""
-    sql = "SELECT card_id, lang FROM ptcg_cards WHERE lang = 'ja'"
+    """Pull every JA row's (UPPER(set_id), INT(local_id)) key, plus the
+    raw card_id as a string fallback. Returns a set of normalized keys
+    so callers can dedupe case-insensitively and zero-pad-insensitively.
+
+    Key shape: ("M1S", "84") — the local_id is the stringified int form
+    so "001" and "1" both collapse to "1". Callers normalize their
+    candidate the same way before lookup.
+    """
+    sql = ("SELECT card_id, set_id, local_id, lang FROM ptcg_cards "
+           "WHERE lang = 'ja'")
     out = subprocess.run(
         WRANGLER_BIN + ["--remote", "--json", "--command", sql],
         capture_output=True, text=True,
@@ -221,7 +230,28 @@ def query_existing_card_ids() -> set[tuple[str, str]]:
     except json.JSONDecodeError:
         return set()
     rows = payload[0].get("results", []) if isinstance(payload, list) else payload.get("results", [])
-    return {(r["card_id"], r["lang"]) for r in rows}
+    keys: set[tuple[str, str]] = set()
+    for r in rows:
+        sid = (r.get("set_id") or "").upper()
+        lid = r.get("local_id") or ""
+        try:
+            lid_norm = str(int(lid))
+        except (TypeError, ValueError):
+            lid_norm = lid
+        keys.add((sid, lid_norm))
+    return keys
+
+
+def normalized_key(set_id: str, local_id: str) -> tuple[str, str]:
+    """Build the same key shape query_existing_card_ids returns — used
+    to look up whether a pkmnbindr candidate already exists in D1
+    under TCGdex's case + padding convention."""
+    sid = (set_id or "").upper()
+    try:
+        lid_norm = str(int(local_id))
+    except (TypeError, ValueError):
+        lid_norm = local_id or ""
+    return (sid, lid_norm)
 
 
 def build_set_insert(tcgdex_set: str, pkm_set: dict) -> str:
@@ -251,7 +281,18 @@ def build_card_row(c: dict, tcgdex_set: str) -> dict | None:
     number = str(c.get("number") or "").strip()
     if not number:
         return None
-    card_id = f"{tcgdex_set}-{number}"
+    # Zero-pad numeric local_ids to 3 digits to match TCGdex's card_id
+    # convention (e.g. M4-001, not M4-1). Without this, the same physical
+    # card lands in D1 twice — once from this script (unpadded) and once
+    # from ptcg-import-d1.js (padded) — and each gets prices independently,
+    # surfacing as "duplicate cards with different prices" to users.
+    # Non-numeric numbers (promo codes, special suffixes) pass through
+    # unchanged.
+    padded = number.zfill(3) if number.isdigit() else number
+    card_id = f"{tcgdex_set}-{padded}"
+    # Also normalize the local_id we store, so SELECT-by-local_id queries
+    # don't have to .CAST/.LPAD at read time.
+    number = padded
 
     images = c.get("images") or []
     front = next((i for i in images if i.get("type") == "front"), images[0] if images else {})
