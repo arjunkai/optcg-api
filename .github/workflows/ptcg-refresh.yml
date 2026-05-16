@@ -337,6 +337,23 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-ptcg-manual-prices.js
 
+      # Snapshot every (card, source, variant) price into ptcg_price_history
+      # AFTER manual overrides so the chart shows the final canonical
+      # value per week. INSERT OR IGNORE keys on (card_id, source,
+      # variant, recorded_at) — safe to retry, weekly cron naturally
+      # plots one snapshot per Monday.
+      - name: Setup Python (for snapshot)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Snapshot PTCG price history
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m scripts.snapshot_ptcg_price_history
+
       # Coverage snapshot — surfaces "what did this run actually do" in
       # the workflow logs so a silently-failing source is visible at a
       # glance instead of requiring a manual D1 query. Counts are also

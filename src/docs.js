@@ -40,6 +40,7 @@ export function registerDocsRoutes(app) {
           '- OPTCG set/base IDs are uppercase (`OP01-001`, `ST01-001`); variant suffixes lowercase (`OP05-119_p8`, `OP05-119_r1`, `OP05-119_jp1`).\n' +
           '- DON cards use synthetic IDs `DON-001` through `DON-195` with `category=Don`.\n' +
           '- PTCG endpoints require a `lang` query (`en` default, also `ja`, `zh-cn`, `zh-tw`).\n' +
+          '- Price history is available for both games: `/cards/{id}/price-history` (OPTCG) and `/pokemon/cards/{id}/price-history` (PTCG, grouped by source+variant).\n' +
           '- Image proxies serve CORS-friendly bytes from R2.',
       },
       servers: [{ url: '/' }],
@@ -501,6 +502,57 @@ export function registerDocsRoutes(app) {
                 } } } },
               },
               400: { description: 'Invalid lang' },
+              401: Error401,
+              403: Error403,
+              429: Error429,
+            },
+          },
+        },
+        '/pokemon/cards/{card_id}/price-history': {
+          get: {
+            tags: ['PTCG · Cards'],
+            summary: 'Get Pokémon Card Price History',
+            description: 'Historical prices captured on each weekly refresh. Each card can have multiple `(source, variant)` series — e.g. `tcgplayer.holofoil`, `tcgplayer.normal`, `cardmarket.avg`, `manual.market`. Points are grouped per series so a chart can render one line each or pick a preferred series. Requires `ptcg` scope.',
+            parameters: [
+              { name: 'card_id', in: 'path', required: true, schema: { type: 'string' }, example: 'SV4a-210' },
+              { name: 'range', in: 'query', schema: { type: 'string', enum: ['1m', '3m', '6m', '1y', 'all'], default: '1y' } },
+            ],
+            responses: {
+              200: {
+                description: 'Price history grouped by (source, variant)',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        card_id: { type: 'string' },
+                        range: { type: 'string' },
+                        series: {
+                          type: 'array',
+                          items: {
+                            type: 'object',
+                            properties: {
+                              source: { type: 'string', example: 'tcgplayer' },
+                              variant: { type: 'string', example: 'holofoil' },
+                              points: {
+                                type: 'array',
+                                items: {
+                                  type: 'object',
+                                  properties: {
+                                    t: { type: 'integer', description: 'Unix ms timestamp' },
+                                    usd: { type: 'number', nullable: true },
+                                    eur: { type: 'number', nullable: true },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
               401: Error401,
               403: Error403,
               429: Error429,

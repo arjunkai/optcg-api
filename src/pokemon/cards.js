@@ -174,6 +174,57 @@ export function registerPokemonCardRoutes(app) {
     return jsonResponse({ count: data.length, data });
   });
 
+  // Price history for one card. Returns the time series captured by
+  // the weekly cron's snapshot-ptcg-price-history.js step. Each card
+  // can have multiple sources (tcgplayer/cardmarket/manual/etc.) and
+  // each source can have multiple variants (tcgplayer.holofoil etc.);
+  // points are returned grouped by (source, variant) so the chart can
+  // overlay or pick whichever line it cares about.
+  //
+  // Range caps the window: 1m, 3m, 6m, 1y (default), all.
+  //
+  // MUST be registered BEFORE /pokemon/cards/:card_id so Hono doesn't
+  // route 'price-history' into the param.
+  app.get('/pokemon/cards/:card_id/price-history', async (c) => {
+    const cardId = c.req.param('card_id');
+    const RANGES = { '1m': 30 * 86400, '3m': 90 * 86400, '6m': 180 * 86400, '1y': 365 * 86400, 'all': null };
+    const range = RANGES[c.req.query('range')] !== undefined ? c.req.query('range') : '1y';
+    const window = RANGES[range];
+
+    let sql = 'SELECT source, variant, recorded_at, price_usd, price_eur FROM ptcg_price_history WHERE card_id = ?';
+    const params = [cardId];
+    if (window !== null) {
+      const since = Math.floor(Date.now() / 1000) - window;
+      sql += ' AND recorded_at >= ?';
+      params.push(since);
+    }
+    sql += ' ORDER BY recorded_at ASC';
+
+    const { results } = await c.env.DB.prepare(sql).bind(...params).all();
+
+    // Group by (source, variant) so a chart can render one line per
+    // series. Each point's `t` is unix ms for parity with OPTCG's
+    // /cards/:id/price-history shape.
+    const series = {};
+    for (const r of results || []) {
+      const key = `${r.source}.${r.variant}`;
+      if (!series[key]) {
+        series[key] = { source: r.source, variant: r.variant, points: [] };
+      }
+      series[key].points.push({
+        t: r.recorded_at * 1000,
+        usd: r.price_usd,
+        eur: r.price_eur,
+      });
+    }
+
+    return c.json({
+      card_id: cardId,
+      range,
+      series: Object.values(series),
+    });
+  });
+
   // Single-card detail. Returns full row including raw TCGdex JSON for
   // CardEnlargeModal's heavy fields (effect/abilities/attacks).
   app.get('/pokemon/cards/:card_id', async (c) => {
