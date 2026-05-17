@@ -114,6 +114,10 @@ Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPla
 - migration 009: adds `retreat INTEGER` to `ptcg_cards`, backfilled from
   the raw TCGdex JSON. Closes a sort-pill gap surfaced by the A.2 code
   review.
+- migration 015: adds `campaign` + `distribution_method` columns to
+  `ptcg_cards`, both nullable with partial indexes. Populated by
+  `scripts/enrich_ja_promo_campaigns.py` (Bulbapedia category crawler).
+  See "JA promo campaign enrichment" below.
 
 ## Pricing
 - `price` REAL, `foil_price` REAL (unused), `delta_price`/`delta_7d_price` (future), `tcg_ids` TEXT (JSON array), `price_updated_at` INTEGER, `price_source` TEXT
@@ -363,6 +367,47 @@ done
 - **Variant suffixes** (`cel25-2A`-style): TCGdex has the row but no image; only ~7 EN cards. Not worth automating.
 - **Non-EN coverage**: upstream-limited. No free source has multi-language data at the scale we'd need. Evaluated and skipped: JustTCG (paid), PokemonPriceTracker (paid), Yahoo Auctions/Mercari (scrape effort), pkmncards (forbidden), Bulbapedia (manual). Manual overrides remain the chase-card hatch for any language.
 - **Trainer Kit subsets** (`tk-xy-*` etc.): TCGdex breaks them out per-character; pokemontcg-data only has the EX-era kits as `tk1a`/`tk2a`. Mapping isn't 1:1, leaving as-is.
+
+### JA promo campaign enrichment
+
+`scripts/enrich_ja_promo_campaigns.py` tags JA promo rows with the
+real-world distribution event that printed them — Munch museum
+collab, McDonald's-by-year, movie commemoration, Pokemon Center DX,
+Champions League, etc. Without this, "every Munch card" or "every
+2024 McDonald's promo" is unanswerable from D1 even though the rows
+exist.
+
+**Data source:** Bulbapedia MediaWiki API. Each entry in
+`CAMPAIGN_SIGNALS` maps a Bulbapedia category to a `(slug, campaign,
+distribution_method)` triple. The script walks each category, parses
+`(SET[-P] Promo NNN)` out of member titles, normalizes the set
+(`SM-P` → `SMP`, `S-P`/`SWSH-P` → `SWSHP`), and writes batched
+UPDATEs joined by `(UPPER(set_id), CAST(local_id AS INTEGER))`. The
+normalized join is non-negotiable — case/zero-padding drift across
+ingest pipelines was the 2026-05-16 dedupe footgun.
+
+**Usage:**
+```
+python -m scripts.enrich_ja_promo_campaigns --dry-run
+python -m scripts.enrich_ja_promo_campaigns --apply
+python -m scripts.enrich_ja_promo_campaigns --campaigns munch --apply
+```
+
+**`distribution_method` vocab** (keep small; extend the constant in
+the script with intent): `art_museum_collaboration`, `fast_food`,
+`theatrical_release`, `magazine_insert`, `pokemon_center`,
+`retail_giveaway`, `championship_event`, `kuji_prize`, `anniversary`.
+
+**Today's signals:** Munch (`Cards with The Scream` → SMP-286–290).
+The Munch row was the validation sample — every category we add
+must be regression-checked the same way: dry-run, eyeball the SQL,
+apply, query D1, confirm the expected rows landed.
+
+**Phase 1a-2 (not built):** categories whose Bulbapedia members are
+titled by the canonical card page (e.g. `McDonald's_Collection_2024_cards`
+lists `Charizard (Vivid Voltage 25)` instead of the McD promo print)
+need the wikitext-infobox parser path. The current regex skips them
+deliberately and prints a `skipped N title(s)` line so we know.
 
 ### How to add a new data source
 

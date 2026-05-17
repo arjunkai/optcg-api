@@ -173,6 +173,20 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/backfill-ptcg-name-en.js
 
+      # JA promo campaign tagging — re-applies CAMPAIGN_SIGNALS each
+      # week so newly-imported promo rows that fall into a known
+      # campaign (e.g. a future Munch reprint) get tagged without a
+      # manual run. UPDATE-only, joined on (UPPER(set_id),
+      # CAST(local_id AS INTEGER)) so the case/zfill collision pattern
+      # the 2026-05-16 JA dedupe surfaced can't recur. Idempotent;
+      # safe to retry.
+      - name: Enrich JA promo campaign metadata (Bulbapedia)
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m scripts.enrich_ja_promo_campaigns --apply
+
       # Yuyutei (JP retailer) layered on top of pkmnbindr's catalog.
       # Runs BEFORE eBay JP because retail prices are more stable than
       # auction noise. Yuyutei's UPDATE clause includes 'ebay_jp' so it

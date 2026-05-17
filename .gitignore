@@ -21,6 +21,7 @@ scripts/import*.sql
 scripts/*_batches/
 scripts/backfill_name_en/
 scripts/dedupe_ja/
+scripts/enrich_campaigns/
 scripts/.tmp/
 node_modules/
 .wrangler/
