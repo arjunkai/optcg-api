@@ -130,12 +130,24 @@ def main() -> None:
     print("4. Applying batches to remote D1...")
     for i, f in enumerate(files, 1):
         print(f"   [{i}/{len(files)}] {f.name}")
-        result = subprocess.run(
-            WRANGLER + [f"--file={f}", "--remote"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-        )
-        if result.returncode != 0:
-            print(f"   FAIL: {(result.stderr or '')[:400]}")
+        last_err = ""
+        # Retry transient wrangler / CF network blips. The HTTP 502 / 503 /
+        # "fetch request failed" class of error has shown up randomly inside
+        # an otherwise-healthy run — don't let one blip abort everything
+        # when the work is INSERT OR IGNORE idempotent anyway.
+        for attempt in range(5):
+            result = subprocess.run(
+                WRANGLER + [f"--file={f}", "--remote"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+            )
+            if result.returncode == 0:
+                break
+            last_err = (result.stderr or result.stdout or "")[:400]
+            backoff = 5 * (2 ** attempt)  # 5, 10, 20, 40, 80 seconds
+            print(f"   retry {attempt + 1}/5 after {backoff}s (err: {last_err[:120]})")
+            time.sleep(backoff)
+        else:
+            print(f"   FAIL after 5 retries: {last_err}")
             sys.exit(1)
     print("Done.")
 
