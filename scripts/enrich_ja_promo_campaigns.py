@@ -73,6 +73,16 @@ BULBAPEDIA_API = "https://bulbapedia.bulbagarden.net/w/api.php"
 USER_AGENT = "OPBindr-Bot/1.0 (contact: arjun@neuroplexlabs.com)"
 RATE_LIMIT_SECONDS = 1.1  # MediaWiki etiquette — single-threaded ~1 req/sec
 
+# Transient wrangler failures (network blip, Cloudflare 5xx, edge timeout)
+# stranded LID 237 on an intermediate signal between batches 5 and 9 during
+# Phase 1e on 2026-05-17. The UPDATEs in scripts/enrich_campaigns/*.sql are
+# deterministic and idempotent (UPDATE ... SET campaign='X' is safe to run
+# twice), so blanket retry with backoff is safer than trying to classify
+# transient vs hard failures by stderr substring. Hard failures still
+# surface after attempts exhaust.
+WRANGLER_MAX_ATTEMPTS = 3
+WRANGLER_RETRY_BACKOFF_SECONDS = (5, 15)  # waits before attempts 2 and 3
+
 Mode = Literal["category_title", "page_setlist"]
 
 
@@ -595,14 +605,40 @@ def main() -> None:
     print("3. Applying batches against remote D1...")
     for i, f in enumerate(files, 1):
         print(f"   [{i}/{len(files)}] executing {f.name}...")
-        result = subprocess.run(
-            WRANGLER + [f"--file={f}", "--remote"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-        )
+        result = _run_wrangler_batch(f)
         if result.returncode != 0:
-            print(f"   FAIL: {(result.stderr or '')[:400]}")
+            print(f"   FAIL after {WRANGLER_MAX_ATTEMPTS} attempts: "
+                  f"{(result.stderr or '')[:400]}")
             sys.exit(1)
     print("Done.")
+
+
+def _run_wrangler_batch(path: Path) -> subprocess.CompletedProcess:
+    """Run one batch file through wrangler, retrying on non-zero exit.
+
+    Returns the final CompletedProcess (either the first success or the
+    last failure). The caller decides how to react to a final non-zero
+    returncode — this function never calls sys.exit so it stays
+    composable.
+    """
+    last_result: subprocess.CompletedProcess | None = None
+    for attempt in range(1, WRANGLER_MAX_ATTEMPTS + 1):
+        result = subprocess.run(
+            WRANGLER + [f"--file={path}", "--remote"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+        if result.returncode == 0:
+            if attempt > 1:
+                print(f"     ok after {attempt} attempt(s)")
+            return result
+        last_result = result
+        if attempt < WRANGLER_MAX_ATTEMPTS:
+            wait = WRANGLER_RETRY_BACKOFF_SECONDS[attempt - 1]
+            err = (result.stderr or "").strip().replace("\n", " ")[:200]
+            print(f"     attempt {attempt} failed ({err}); retrying in {wait}s...")
+            time.sleep(wait)
+    assert last_result is not None
+    return last_result
 
 
 def _fetch_category_members(category: str) -> list[str]:
