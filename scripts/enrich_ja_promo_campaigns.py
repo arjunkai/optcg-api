@@ -336,6 +336,39 @@ CAMPAIGN_SIGNALS: list[Signal] = [
         setlist_match="Scramble Battle",
         set_id_override="MP",
     ),
+    # Friend Battle Together: recurring event distributing basic-energy
+    # holofoil promos at Pokémon Card Gym + retail. Same physical product
+    # across SV-P (Jul-Sep 2024, LIDs 175-182) and M-P (Aug-Sep 2025
+    # LIDs 9-16 + Mar-May 2026 LIDs 87-94). Wikitext frames each era
+    # differently — SV-P calls it "participation prize", M-P calls it
+    # "Holofoil Promo Card". Two signals with distinct campaign strings
+    # preserve the era wording; both in event_promo bucket.
+    #
+    # The M-P substring must be the quoted form `"Friend Battle Together"
+    # Holofoil` — bare "Holofoil" would collide with M-P LID 34
+    # (Champions League 2026 Holofoil participation prize), and bare
+    # "Friend Battle Together" is fine on M-P today but defensive
+    # specificity is cheap.
+    Signal(
+        slug="friend_battle_together_svp",
+        campaign="Friend Battle Together participation prize",
+        distribution_method="event_promo",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="SV-P Promotional cards (TCG)",
+        setlist_match="Friend Battle Together participation prize",
+        set_id_override="SVP",
+    ),
+    Signal(
+        slug="friend_battle_together_mp",
+        campaign="Friend Battle Together Holofoil Promo Card",
+        distribution_method="event_promo",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="M-P Promotional cards (TCG)",
+        setlist_match='"Friend Battle Together" Holofoil',
+        set_id_override="MP",
+    ),
     # Illustrator / streetwear collabs on the SV-P era — distinct from
     # museum-led art collabs (Munch, Van Gogh) which stay in
     # art_museum_collaboration. NAKANO STYLING TANTO is a Tokyo
