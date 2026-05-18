@@ -268,6 +268,48 @@ CAMPAIGN_SIGNALS: list[Signal] = [
         setlist_match="Endorsed Independent Event Trainers Pack",
         set_id_override="MP",
     ),
+    # Illustrator / streetwear collabs on the SV-P era — distinct from
+    # museum-led art collabs (Munch, Van Gogh) which stay in
+    # art_museum_collaboration. NAKANO STYLING TANTO is a Tokyo
+    # streetwear brand; Yu Nagaba is an illustrator known for his
+    # Pokémon Eeveelutions series. Bulbapedia uses unicode × in both
+    # collab markers — setlist_match avoids the unicode char with
+    # shorter unique substrings ("NAKANO" / "Yu Nagaba").
+    Signal(
+        slug="nakano_styling_tanto_svp",
+        campaign="NAKANO STYLING TANTO × Pokémon Card Game",
+        distribution_method="illustrator_collaboration",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="SV-P Promotional cards (TCG)",
+        setlist_match="NAKANO",
+        set_id_override="SVP",
+    ),
+    Signal(
+        slug="yu_nagaba_svp",
+        campaign="Yu Nagaba × Pokémon Card Game",
+        distribution_method="illustrator_collaboration",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="SV-P Promotional cards (TCG)",
+        setlist_match="Yu Nagaba",
+        set_id_override="SVP",
+    ),
+    # McDonald's Japan Promo Card on M-P — closes the McD gap deferred
+    # in Phase 1a-2 (the McDonald's Collection canonical-page parsing
+    # path is still pending; this signal works because M-P's master
+    # setlist has the McD distribution inline rather than as a separate
+    # set). 6 rows on M-P, none on SV-P.
+    Signal(
+        slug="mcdonalds_japan_mp",
+        campaign="McDonald's Japan Promo Card",
+        distribution_method="fast_food",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="M-P Promotional cards (TCG)",
+        setlist_match="McDonald",
+        set_id_override="MP",
+    ),
 ]
 
 # Bulbapedia set codes → our promo set_id. Bare codes (no -P) come from

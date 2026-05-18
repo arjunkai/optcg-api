@@ -26,7 +26,7 @@
 -- constant): art_museum_collaboration, fast_food, theatrical_release,
 -- magazine_insert, pokemon_center, retail_giveaway, championship_event,
 -- kuji_prize, anniversary, card_gym_promo, card_gym_campaign,
--- card_gym_event, event_promo.
+-- card_gym_event, event_promo, illustrator_collaboration.
 
 ALTER TABLE ptcg_cards ADD COLUMN campaign TEXT;
 ALTER TABLE ptcg_cards ADD COLUMN distribution_method TEXT;
