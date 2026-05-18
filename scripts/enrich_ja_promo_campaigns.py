@@ -377,6 +377,84 @@ CAMPAIGN_SIGNALS: list[Signal] = [
         setlist_match="McDonald",
         set_id_override="MP",
     ),
+    # Sealed Battle: umbrella for Triplet Beat Sealed Battle, Hot Wind
+    # Arena Sealed Battle, and other recurring sealed-format event
+    # distributions. Single substring catches them all; a future split
+    # into per-event signals can specialize if filter UIs need it.
+    # No SV-P card name contains "Sealed Battle" so the substring is
+    # false-positive-safe.
+    Signal(
+        slug="sealed_battle_svp",
+        campaign="Sealed Battle",
+        distribution_method="event_promo",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="SV-P Promotional cards (TCG)",
+        setlist_match="Sealed Battle",
+        set_id_override="SVP",
+    ),
+    # Let's Start Playing Pokémon Card Game Campaign: SV-era
+    # new-player onboarding promotion bundled with starter packs.
+    Signal(
+        slug="lets_start_playing_svp",
+        campaign="Let's Start Playing Pokémon Card Game Campaign",
+        distribution_method="event_promo",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="SV-P Promotional cards (TCG)",
+        setlist_match="Let's Start Playing",
+        set_id_override="SVP",
+    ),
+    # Pokémon Card Summer Is Here: 2024 summer campaign distribution.
+    Signal(
+        slug="pokemon_summer_is_here_svp",
+        campaign="Pokémon Card Summer Is Here! Promo Card Get Campaign",
+        distribution_method="event_promo",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="SV-P Promotional cards (TCG)",
+        setlist_match="Pokémon Card Summer Is Here",
+        set_id_override="SVP",
+    ),
+    # Generations Start Deck Special Battle Set: tournament-shaped
+    # bundle, 4 cards (LIDs 192-195).
+    Signal(
+        slug="special_battle_set_svp",
+        campaign="Generations Start Deck Special Battle Set",
+        distribution_method="event_promo",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="SV-P Promotional cards (TCG)",
+        setlist_match="Special Battle Set",
+        set_id_override="SVP",
+    ),
+    # Pokémon Trading Card Game Illustration Contest 2024 winning works.
+    Signal(
+        slug="illustration_contest_2024_svp",
+        campaign="Pokémon Trading Card Game Illustration Contest 2024 Winning Work",
+        distribution_method="event_promo",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="SV-P Promotional cards (TCG)",
+        setlist_match="Illustration Contest",
+        set_id_override="SVP",
+    ),
+    # CoroCoro magazine inserts. Recurring monthly distribution via
+    # CoroCoro Ichiban! and CoroCoro Comic. 6 of the 12 hits are
+    # multi-distribution cards also inserted in Pokémon Fan magazine —
+    # CoroCoro takes precedence here because every Pokémon Fan hit is
+    # also a CoroCoro hit (no Pokémon Fan-only cards), so a standalone
+    # Pokémon Fan signal would tag zero unique cards.
+    Signal(
+        slug="corocoro_magazine_svp",
+        campaign="CoroCoro magazine insert",
+        distribution_method="magazine_insert",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="SV-P Promotional cards (TCG)",
+        setlist_match="CoroCoro",
+        set_id_override="SVP",
+    ),
 ]
 
 # Bulbapedia set codes → our promo set_id. Bare codes (no -P) come from
