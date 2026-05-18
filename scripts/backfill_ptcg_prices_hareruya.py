@@ -70,6 +70,8 @@ TITLE_RE = re.compile(
     r"〈\s*(?P<lid>[A-Za-z0-9\-/]+?)\s*(?:/\s*[\dA-Za-z\-]+)?\s*〉\s*\[\s*(?P<setid>[^\]]+?)\s*\]"
 )
 
+# Promo-suffix Hareruya-token → D1 set_id remaps for cases where simple
+# de-hyphenation isn't right (S-P → SWSHP, not SP).
 HARERUYA_PROMO_MAP = {
     "S-P": "SWSHP", "SM-P": "SMP", "XY-P": "XYP", "BW-P": "BWP",
     "DP-P": "DPP",  "SV-P": "SVP", "P-P":  "PP",
@@ -77,6 +79,13 @@ HARERUYA_PROMO_MAP = {
 
 
 def candidate_setids(s: str) -> list[str]:
+    """Expand a set token into every D1 set_id variant it could legally
+    match. Used on BOTH sides of the lookup (Hareruya title-extracted
+    setid and D1 row.set_id) so the match is symmetric — see
+    project_hareruya_recall_audit memory for the audit that motivated
+    the symmetric lookup: production previously expanded only the
+    Hareruya side, missing 36 unpriced rows where D1's set_id used
+    hyphen/case variants the index didn't carry."""
     cands = {s, s.upper(), s.lower()}
     if s in HARERUYA_PROMO_MAP:
         cands.add(HARERUYA_PROMO_MAP[s])
@@ -86,14 +95,30 @@ def candidate_setids(s: str) -> list[str]:
     if re.match(r"^M\d", s):
         cands.add("MEGA" + s[1:].upper())
         cands.add(s.upper())
+    # General de-hyphenation: PCG-10 → PCG10, M-P → MP, e-1 → e1. Hyphen
+    # presence is a Hareruya/D1 formatting accident, not a real set
+    # distinction. The HARERUYA_PROMO_MAP above handles the special
+    # cases (S-P → SWSHP) where de-hyphenation alone is wrong.
+    if "-" in s:
+        no_hyphen = s.replace("-", "")
+        cands.add(no_hyphen)
+        cands.add(no_hyphen.upper())
+        cands.add(no_hyphen.lower())
     return list(cands)
 
 
 def normalize_lid(lid: str) -> list[str]:
-    out = [lid]
-    if lid.lstrip("0") and lid.lstrip("0") != lid:
-        out.append(lid.lstrip("0"))
-    return out
+    """Expand a local_id into every padding variant it could legally
+    match. Hareruya listings tend to use unpadded numerics ("85"); some
+    D1 vintage sets zero-pad to width 3 ("085" / "078"). Strip + pad
+    both ways so the lookup matches either direction."""
+    out = {lid}
+    stripped = lid.lstrip("0") or "0"
+    out.add(stripped)
+    if lid.isdigit():
+        out.add(lid.zfill(2))
+        out.add(lid.zfill(3))
+    return list(out)
 
 
 def query_d1(query: str) -> list[dict]:
@@ -234,19 +259,29 @@ def main():
 
     matches = []
     for c in cards:
-        for lid in normalize_lid(c["local_id"]):
-            jpy_list = by_card.get((c["set_id"], lid))
+        jpy_list = None
+        # Symmetric lookup: expand D1's set_id with the same candidate
+        # ladder we used on the Hareruya side at index time. The 2026-05-18
+        # audit (project_hareruya_recall_audit) found D1 rows with hyphen
+        # variants (M-P → MP, PCG-10 → PCG10) and case variants (XY8B,
+        # neo1) that the asymmetric lookup missed.
+        for sid in candidate_setids(c["set_id"]):
+            for lid in normalize_lid(c["local_id"]):
+                jpy_list = by_card.get((sid, lid))
+                if jpy_list:
+                    break
             if jpy_list:
-                jpy = statistics.median(jpy_list)
-                usd = round(jpy * fx, 2)
-                if MIN_USD <= usd <= MAX_USD:
-                    matches.append({
-                        "card_id": c["card_id"],
-                        "jpy": int(jpy),
-                        "usd": usd,
-                        "n_listings": len(jpy_list),
-                    })
                 break
+        if jpy_list:
+            jpy = statistics.median(jpy_list)
+            usd = round(jpy * fx, 2)
+            if MIN_USD <= usd <= MAX_USD:
+                matches.append({
+                    "card_id": c["card_id"],
+                    "jpy": int(jpy),
+                    "usd": usd,
+                    "n_listings": len(jpy_list),
+                })
 
     print(f"   matched: {len(matches)} ({100*len(matches)/max(1,len(cards)):.1f}%)")
 
