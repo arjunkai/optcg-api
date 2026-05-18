@@ -25,7 +25,7 @@
 -- buckets. Today's vocab (extend in the script's DISTRIBUTION_METHODS
 -- constant): art_museum_collaboration, fast_food, theatrical_release,
 -- magazine_insert, pokemon_center, retail_giveaway, championship_event,
--- kuji_prize, anniversary.
+-- kuji_prize, anniversary, card_gym_promo.
 
 ALTER TABLE ptcg_cards ADD COLUMN campaign TEXT;
 ALTER TABLE ptcg_cards ADD COLUMN distribution_method TEXT;

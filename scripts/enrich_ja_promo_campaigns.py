@@ -136,6 +136,39 @@ CAMPAIGN_SIGNALS: list[Signal] = [
         setlist_match="Champions League 2023",
         set_id_override="SVP",
     ),
+    # Pokémon Card Gym Promo Card Pack: boxed promo packs sold at
+    # participating Pokémon Card Gym stores in Japan. Recurring SKU
+    # spanning multiple sets — SV-era ran Packs 1-10 across SV-P, MEGA-era
+    # is mid-stream with Packs 1-4 across M-P. setlist_match is the bare
+    # phrase; it matches both {{TCGMerch|...|Pokémon Card Gym Promo Card
+    # Pack N}} header rows and plain "Pokémon Card Gym Promo Card Pack N"
+    # follow-up rows. Sibling Card Gym distributions (Entry Campaign, NRB
+    # winner prize, events participation prize) use distinct phrases and
+    # are intentionally NOT tagged here — they're different mechanisms.
+    # Known v1 gap: M-P LID 085 has Pack 4 listed on a bullet-list
+    # continuation line; current line-scoped _parse_setlist_keys misses
+    # multi-line entries. 1 row out of ~98; revisit if more multi-line
+    # signals show up.
+    Signal(
+        slug="card_gym_promo_pack_mp",
+        campaign="Pokémon Card Gym Promo Card Pack",
+        distribution_method="card_gym_promo",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="M-P Promotional cards (TCG)",
+        setlist_match="Pokémon Card Gym Promo Card Pack",
+        set_id_override="MP",
+    ),
+    Signal(
+        slug="card_gym_promo_pack_svp",
+        campaign="Pokémon Card Gym Promo Card Pack",
+        distribution_method="card_gym_promo",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="SV-P Promotional cards (TCG)",
+        setlist_match="Pokémon Card Gym Promo Card Pack",
+        set_id_override="SVP",
+    ),
 ]
 
 # Bulbapedia set codes → our promo set_id. Bare codes (no -P) come from
