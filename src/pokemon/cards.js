@@ -48,6 +48,14 @@ export function rowToSlim(row) {
     pricing: row.pricing_json ? JSON.parse(row.pricing_json) : {},
     price_source: row.price_source ?? null,
     dominant_color: row.dominant_color,
+    // Campaign / distribution metadata (migration 015). Lets the
+    // frontend show "Distributed via …" on JA promos without a second
+    // round-trip. Null on cards that haven't been tagged (most of the
+    // catalog; the enrich_ja_promo_campaigns.py signals fill ~329 rows
+    // as of 2026-05-18). Kept on the slim shape since both fields are
+    // small strings — cheap to ship in /index.
+    campaign: row.campaign ?? null,
+    distribution_method: row.distribution_method ?? null,
   };
 }
 
