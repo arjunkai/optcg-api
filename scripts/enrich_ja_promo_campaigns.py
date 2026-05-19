@@ -519,6 +519,29 @@ CAMPAIGN_SIGNALS: list[Signal] = [
         setlist_match="CoroCoro",
         set_id_override="SVP",
     ),
+    # Pokémon Center regional Special Boxes — Tohoku (LID 260, mid-Aug
+    # 2025), Hiroshima (LID 261, early-Sep 2025), Fukuoka (LID 289,
+    # late-Sep 2025). All three are city-themed Pikachu cards
+    # distributed in their respective regional Pokémon Center stores.
+    # setlist_match="Special Box" is a clean 3-hit substring — the
+    # bare "Pokémon Center" form would false-positive on LIDs 239 and
+    # 250 ("Pokémon Center Lady" card name) which are correctly tagged
+    # Card Gym Pack 9 / Endorsed Independent Event. Verified by grep
+    # on the live SV-P wikitext 2026-05-19. Three regional boxes share
+    # the same product format so a single signal under one campaign
+    # label is correct; future Pokémon Center Special Box releases
+    # auto-pick up. Stays in event_promo bucket — no new filter-pill
+    # vocab; campaign string preserves the regional/retail attribution.
+    Signal(
+        slug="pokemon_center_special_box_svp",
+        campaign="Pokémon Center Special Box",
+        distribution_method="event_promo",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="SV-P Promotional cards (TCG)",
+        setlist_match="Special Box",
+        set_id_override="SVP",
+    ),
 ]
 
 # Bulbapedia set codes → our promo set_id. Bare codes (no -P) come from
