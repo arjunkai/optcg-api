@@ -221,6 +221,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: python -m scripts.enrich_ja_promo_campaigns --apply
 
+      # Yuyutei catalog ingest — INSERTs JA rows that exist in Yuyutei's
+      # per-set listings but are missing from D1. Runs BEFORE the
+      # price/image UPDATE step so the UPDATEs see a complete row set.
+      # In practice the INSERT already carries name + image + pricing,
+      # so the UPDATE on those rows is a no-op COALESCE / json_patch
+      # refresh; the symmetry keeps each script's responsibility clean.
+      - name: Ingest JA catalog gaps via Yuyutei
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m scripts.backfill_yuyutei_catalog --apply
+
       # Yuyutei (JP retailer) layered on top of pkmnbindr's catalog.
       # Runs BEFORE eBay JP because retail prices are more stable than
       # auction noise. Yuyutei's UPDATE clause includes 'ebay_jp' so it
