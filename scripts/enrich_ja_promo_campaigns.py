@@ -519,6 +519,23 @@ CAMPAIGN_SIGNALS: list[Signal] = [
         setlist_match="CoroCoro",
         set_id_override="SVP",
     ),
+    # Energy Card Set: SV1-launch retail bundle (January 20, 2023) — a
+    # 3-card item promo set distributed alongside the early SV expansion
+    # boxes. LIDs 10-12: Poké Ball, Pokémon Switch, Nemona. Substring
+    # "Energy Card Set" is a clean 3-hit catch on the SV-P master page;
+    # no overlap with the "ex Starter Sets" (LIDs 2-9, 13) or "Let's
+    # Start Playing" (LIDs 2-9) signals ordered before this one. Stays
+    # in event_promo bucket alongside other retail-launch bundles.
+    Signal(
+        slug="energy_card_set_svp",
+        campaign="Energy Card Set",
+        distribution_method="event_promo",
+        lang="ja",
+        mode="page_setlist",
+        bulbapedia_target="SV-P Promotional cards (TCG)",
+        setlist_match="Energy Card Set",
+        set_id_override="SVP",
+    ),
     # Pokémon Center regional Special Boxes — Tohoku (LID 260, mid-Aug
     # 2025), Hiroshima (LID 261, early-Sep 2025), Fukuoka (LID 289,
     # late-Sep 2025). All three are city-themed Pikachu cards
