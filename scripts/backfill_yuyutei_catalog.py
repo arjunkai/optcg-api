@@ -62,6 +62,51 @@ BATCH_SIZE = 100  # rows per multi-statement SQL file
 TARGET_LANG = "ja"
 
 
+def fetch_existing_lids_for_set(set_id: str) -> set[str]:
+    """Return the set of local_id strings we already have for
+    (set_id, lang='ja'). Used to diff against Yuyutei scraped products
+    and decide which need INSERTing.
+
+    Returns strings (not ints) because catalog rows can carry
+    zero-padded local_ids like '001' that we should compare verbatim.
+    Yuyutei's scraped card_number is unpadded; we compare against both
+    the raw scraped value and the zfill(3) variant to catch either
+    storage convention.
+    """
+    cmd = WRANGLER_BIN + [
+        "--remote",
+        "--json",
+        "--command",
+        f"SELECT local_id FROM ptcg_cards "
+        f"WHERE UPPER(set_id) = '{set_id.upper()}' "
+        f"AND lang = '{TARGET_LANG}'",
+    ]
+    result = run_wrangler(cmd)
+    if result.returncode != 0:
+        print(f"   FAIL fetching existing LIDs for {set_id} after "
+              f"{WRANGLER_MAX_ATTEMPTS} attempts: "
+              f"{(result.stderr or '')[:400]}")
+        sys.exit(1)
+    payload = _strip_wrangler_chrome(result.stdout)
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError as e:
+        print(f"   FAIL parsing wrangler JSON: {e}\n"
+              f"--- payload (head) ---\n{payload[:400]}")
+        sys.exit(1)
+    rows = data[0]["results"] if isinstance(data, list) else data.get("results", [])
+    return {str(r["local_id"]) for r in rows if r.get("local_id") is not None}
+
+
+def _strip_wrangler_chrome(stdout: str) -> str:
+    """Wrangler prints a config-warning banner before the JSON. Find the
+    first '[' or '{' and slice from there. Lifted from backfill_mp_catalog.py."""
+    for i, ch in enumerate(stdout):
+        if ch in "[{":
+            return stdout[i:]
+    return stdout
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--set", help="Only run this TCGdex set id (e.g. SV10)")
