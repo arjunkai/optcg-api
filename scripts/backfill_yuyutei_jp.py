@@ -231,16 +231,27 @@ def image_update_sql(card_id: str, image_url: str) -> str:
 def price_update_sql(card_id: str, payload_json: str) -> str:
     cid = card_id.replace("'", "''")
     # Patch into pricing_json under .yuyutei; flip price_source unless
-    # the row is already manual or pokemontcg (both stronger sources).
+    # the row is already manual / pokemontcg / tcgplayer (the three
+    # strongest sources we trust over JP retail).
+    #
+    # Pricecharting was added to the OR-list 2026-05-19 after a spot
+    # check on 12 random JA cards with both yuyutei + pricecharting
+    # prices showed pricecharting consistently overshoots Yuyutei by
+    # 5-10x and outright wrong-prices variant-conflated rows (e.g.
+    # SV11W-003 Leavanny: $10.12 on PC's leavanny-master-ball-3 URL
+    # vs $0.32 actual JP retail). Yuyutei is the more authoritative
+    # signal for modern JA cards in active circulation; pricecharting
+    # still wins on truly-vintage rows because Yuyutei doesn't stock
+    # them at all and so this script won't UPDATE them.
     return (
         f"UPDATE ptcg_cards SET "
         f"pricing_json = json_patch(COALESCE(pricing_json, '{{}}'), json_object('yuyutei', json('{payload_json}'))), "
         f"price_source = CASE "
-        f"  WHEN price_source IN ('manual', 'pokemontcg') THEN price_source "
+        f"  WHEN price_source IN ('manual', 'pokemontcg', 'tcgplayer') THEN price_source "
         f"  ELSE 'yuyutei' "
         f"END "
         f"WHERE card_id = '{cid}' AND lang = 'ja' "
-        f"AND (price_source IS NULL OR price_source IN ('cardmarket', 'ebay_jp'));"
+        f"AND (price_source IS NULL OR price_source IN ('cardmarket', 'ebay_jp', 'pricecharting'));"
     )
 
 
