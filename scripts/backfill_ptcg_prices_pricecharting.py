@@ -399,6 +399,37 @@ def _fetch_set_cards(slug: str) -> list[dict]:
     return cards
 
 
+# Map our D1 set_id → PC URL set-token (lowercase, no '-p'). Used to
+# filter candidates within the universal `pokemon-japanese-promo` bucket
+# so we don't match SVP-14 to an SM-P slug just because both have local
+# id 14. Without this guard, the audit at 2026-05-21 found 262 variant-
+# conflated rows across promo sets — see audit_pricecharting_jp_conflation.
+SET_ID_TO_PC_TOKEN = {
+    "SVP":  "sv",
+    "SMP":  "sm",
+    "XYP":  "xy",
+    "BWP":  "bw",
+    "SWSHP": "swsh",  # alt 's' also seen — both accepted
+    "MP":   "m",
+    "DPP":  "dp",
+    "LP":   "l",
+    "PCGP": "pcg",
+    "PMCGP": "pmcg",
+    "PTP":  "pt",
+}
+_PC_PROMO_TAIL_RE = re.compile(r"(?<!\w)(\d+)([a-z]+)-p\s*$", re.IGNORECASE)
+
+
+def _slug_set_tag(url: str) -> str | None:
+    """Extract the set token from a PC promo URL (`...-14sm-p` → 'sm').
+    Returns None for URLs that don't fit the promo pattern (vintage
+    non-promo URLs use a different shape)."""
+    if not url:
+        return None
+    m = _PC_PROMO_TAIL_RE.search(url)
+    return m.group(2).lower() if m else None
+
+
 def match_set(set_cards: list[dict], pc_cards: list[dict], set_id: str,
               verbose: bool = False) -> tuple[list[dict], dict]:
     """Match each card to a PC entry by (number, name).
@@ -421,7 +452,26 @@ def match_set(set_cards: list[dict], pc_cards: list[dict], set_id: str,
         if nk:
             by_name[nk].append(p)
 
-    stats = {"by_number": 0, "by_name": 0}
+    # When the source PC set is the universal promo bucket, every promo
+    # set (SM-P / BW-P / XY-P / SV-P / SWSH-P / M-P / DP-P / L-P / PCG-P
+    # / PMCG-P / PT-P) renumbers from 1. Matching by number alone would
+    # let SVP-14 land on SM-P card #14 because that was the first #14
+    # PC returned. Filter candidates to only those whose slug's set
+    # token matches our expected token for this set_id.
+    expected_tag = SET_ID_TO_PC_TOKEN.get(set_id.upper())
+    expected_tag_set: set[str] = set()
+    if expected_tag:
+        expected_tag_set.add(expected_tag)
+        # SWSH-P era PC slugs sometimes use the short 's' token.
+        if expected_tag == "swsh":
+            expected_tag_set.add("s")
+
+    def _filter_by_tag(cands: list[dict]) -> list[dict]:
+        if not expected_tag_set:
+            return cands  # no mapping; trust by-number (non-promo sets)
+        return [p for p in cands if _slug_set_tag(p.get("url", "")) in expected_tag_set]
+
+    stats = {"by_number": 0, "by_name": 0, "tag_filtered_out": 0}
     used_product_ids: set[str] = set()
     out = []
     for c in set_cards:
@@ -438,6 +488,16 @@ def match_set(set_cards: list[dict], pc_cards: list[dict], set_id: str,
                 if variant and variant in by_num:
                     candidates = by_num[variant]
                     break
+
+        # Drop candidates whose slug points to a different promo set.
+        if candidates:
+            pre = len(candidates)
+            candidates = _filter_by_tag(candidates)
+            if pre and not candidates:
+                stats["tag_filtered_out"] += 1
+                if verbose:
+                    print(f"      tag-filter: {c['card_id']} had {pre} number-matches but "
+                          f"none matched expected tag(s) {expected_tag_set} — dropping")
 
         matched_by = None
         if candidates:
