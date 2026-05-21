@@ -395,13 +395,26 @@ def _to_en_name(card: dict, client: EbayClient | None = None) -> str | None:
     """For a JA card, return the best English-name guess for eBay search.
     Returns None if we can't translate — caller skips the card rather than
     submitting a query that would match generic noise.
-    Priority: card_id-keyed canonical override → JP-species-name lookup →
-    eBay Commerce Translation fallback (cached on disk).
+
+    Priority:
+      (0) `card.name_en` from D1 — backfilled from TCGdex / manual seeds.
+          Added 2026-05-21 after discovering E2-053 Phanpy (and ~hundreds
+          of other rows with non-null name_en) were being skipped because
+          this function never consulted the column. Empirically: D1's
+          name_en is the most reliable mapping when it's present.
+      (1) card_id-keyed canonical override (cid_en) — local hand-curation.
+      (2) JP-species-name lookup (jp_en) — generic species map.
+      (3) eBay Commerce Translation API fallback (cached on disk).
 
     Translation requires the commerce.translation scope to be enabled on
     the eBay keyset. If the scope returns invalid_scope, the fallback
     quietly skips and the caller's verification filter still gates the
     result downstream."""
+    # Priority 0: D1's name_en field. Most authoritative — TCGdex's
+    # canonical EN name when known.
+    d1_name_en = (card.get("name_en") or "").strip()
+    if d1_name_en:
+        return d1_name_en
     jp_en, cid_en = _load_jp_en_maps()
     cid = card.get("card_id") or ""
     if cid in cid_en and cid_en[cid]:
@@ -553,11 +566,18 @@ def build_query(card: dict, lang: str, en_name: str) -> str:
     JA: '"{en_name}" {local_id} japanese pokemon' — quoted name forces
         the search to keep our Pokemon as the head subject; local_id
         narrows to the specific print; 'japanese' filters out EN sellers.
+
+    NOTE 2026-05-21: do NOT strip leading zeros from local_id. eBay's
+    Browse API ranks "053" matches vs "53" matches very differently —
+    titles like "Phanpy 053/092" don't surface when the query has bare
+    "53" token. Empirically: '"Phanpy" 053 japanese pokemon' → 12
+    listings; '"Phanpy" 53 japanese pokemon' → 0 listings. Keep the
+    padding the card itself was minted with; sellers reproduce it.
     """
     set_code = card["set_id"] or card["card_id"].split("-")[0]
     if lang == "en":
         return f"{en_name} {set_code} pokemon"
-    lid = (card.get("local_id") or "").lstrip("0") or card.get("local_id") or ""
+    lid = card.get("local_id") or ""
     if lid:
         return f'"{en_name}" {lid} japanese pokemon'
     return f'"{en_name}" japanese pokemon {set_code}'
