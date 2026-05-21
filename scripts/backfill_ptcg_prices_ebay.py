@@ -571,24 +571,31 @@ def price_card(client: EbayClient, card: dict, lang: str, marketplace: str,
 def build_query(card: dict, lang: str, en_name: str) -> str:
     """Card-specific eBay search query, both langs target EBAY_US.
     EN: "{name} {setCode} pokemon"
-    JA: '"{en_name}" {local_id} japanese pokemon' — quoted name forces
-        the search to keep our Pokemon as the head subject; local_id
-        narrows to the specific print; 'japanese' filters out EN sellers.
+    JA: '{en_name} {local_id} japanese pokemon' — local_id narrows to
+        the specific print; 'japanese' filters out EN sellers. The
+        per-listing is_relevant_listing filter is the actual identity
+        gate (requires name + number-form + japanese in title).
 
-    NOTE 2026-05-21: do NOT strip leading zeros from local_id. eBay's
-    Browse API ranks "053" matches vs "53" matches very differently —
-    titles like "Phanpy 053/092" don't surface when the query has bare
-    "53" token. Empirically: '"Phanpy" 053 japanese pokemon' → 12
-    listings; '"Phanpy" 53 japanese pokemon' → 0 listings. Keep the
-    padding the card itself was minted with; sellers reproduce it.
+    NOTE 2026-05-21: TWO bug fixes in this commit chain.
+    (1) Do NOT strip leading zeros from local_id. eBay's Browse API
+    ranks "053" matches vs "53" matches very differently — titles
+    like "Phanpy 053/092" don't surface when the query has bare "53"
+    token. Verified: '"Phanpy" 053 japanese pokemon' → 12 listings;
+    '"Phanpy" 53 japanese pokemon' → 0 listings.
+    (2) Do NOT wrap en_name in quotes. eBay's exact-phrase semantics
+    on quoted strings are too strict for our case — sellers vary the
+    spelling/punctuation enough that '"Snivy" 78 japanese pokemon'
+    returns 0 while 'Snivy 78 japanese pokemon' returns 20. The
+    relevance filter downstream already gates on the name appearing
+    in the title, so we don't need quotes to force it.
     """
     set_code = card["set_id"] or card["card_id"].split("-")[0]
     if lang == "en":
         return f"{en_name} {set_code} pokemon"
     lid = card.get("local_id") or ""
     if lid:
-        return f'"{en_name}" {lid} japanese pokemon'
-    return f'"{en_name}" japanese pokemon {set_code}'
+        return f"{en_name} {lid} japanese pokemon"
+    return f"{en_name} japanese pokemon {set_code}"
 
 
 def build_update_sql(matches: list[dict]) -> list[str]:
