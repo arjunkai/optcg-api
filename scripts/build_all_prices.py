@@ -140,6 +140,14 @@ def main() -> None:
     claimed: set[str] = set()
     unmatched: list[dict] = []
     by_id_no_dotgg = set(no_dotgg_entry)
+    # Skip a tcg_id once it has claimed a parallel. Otherwise a product
+    # cross-listed across multiple guide MD files (e.g. an OP-01 alt in
+    # 569901.md the universal Promotion bucket AND OP-01.md the set guide)
+    # claims candidates[0] in the first iteration, then candidates[0]-after-
+    # claim in the second, stamping the same tcg_id on two different
+    # parallels. Saw this on 2026-05-22 for OP01-001 (485262 stamped on
+    # both _p1 and _p2). See audit_optcg_positional_conflation.py.
+    seen_tcg_ids: set[int] = set()
 
     # Re-use all scraped rows (not just deduped products)
     for s in sets_meta:
@@ -154,6 +162,8 @@ def main() -> None:
                 if number in by_id_no_dotgg and number not in matched:
                     upsert(number, row["price"], [row["tcg_id"]], s["set_id"], "positional-base")
                 continue
+            if row["tcg_id"] in seen_tcg_ids:
+                continue
             # Variant fallback — only among parallels not in dotgg
             target_type = VARIANT_LABEL_TO_TYPE.get(suffix, "alt_art")
             candidates = [
@@ -166,6 +176,7 @@ def main() -> None:
                 continue
             chosen = candidates[0]
             claimed.add(chosen["id"])
+            seen_tcg_ids.add(row["tcg_id"])
             upsert(chosen["id"], row["price"], [row["tcg_id"]], s["set_id"], "positional-parallel")
 
     positional = sum(1 for v in matched.values() if v["match_method"].startswith("positional"))
