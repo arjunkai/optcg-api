@@ -202,13 +202,44 @@ JA_NAME_VOCAB: dict[str, str] = {
     # English print is "Energy Search". Keep below the by-name fallback
     # mappings so the eBay query doesn't search the wrong string.
     "エネルギー転送": "Energy Search",
+    # Third-pass tail additions — older/alternate JP notations and
+    # 1-off cards (researched 2026-05-26).
+    "Wレインボーエネルギー": "Double Rainbow Energy",
+    "δレインボーエネルギー": "Delta Rainbow Energy",
+    "rエネルギー": "R Energy",
+    "ダブルアクアエネルギー": "Double Aqua Energy",
+    "ダブルマグマエネルギー": "Double Magma Energy",
+    "ネオアッパーエネルギー": "Neo Upper Energy",
+    # TRAP: literal romaji is "Bad Energy" but English print is "Dangerous Energy".
+    "バッドエネルギー": "Dangerous Energy",
+    "マグマエネルギー": "Magma Energy",
+    "スパイラルエネルギー": "Spiral Energy",
+    "メディカルエネルギー": "Medical Energy",
+    "レトロなエネルギー": "Retro Energy",
+    # Alias of エネルギーつけかえ — D1 has both forms in different rows.
+    "エネルギースイッチ": "Energy Switch",
+    "サイキックエネルギー": "Basic Psychic Energy",
+    # *クイック is a Quick Construction Pack product tag, not a card variant.
+    "基本草エネルギー*クイック": "Basic Grass Energy",
+    # Older non-canonical shorthand for the basic energies (DB-only forms,
+    # not printed on any card face — likely OCR/transcription artifacts).
+    "水エネルギー": "Basic Water Energy",
+    "火エネルギー": "Basic Fire Energy",
+    "稲妻エネルギー": "Basic Lightning Energy",
+    "草のエネルギー": "Basic Grass Energy",
+    "二重の無色のエネルギー": "Double Colorless Energy",
+    "超エネルギー除去": "Super Energy Removal",
     # Deliberately NOT mapped: エネルギーの流れ, エネルギーを高めます,
-    # エネルギー回復, エネルギー検索, エネルギースイッチ, エネルギー根 —
-    # all confirmed by 2026-05-26 research to NOT be card names (flavor
-    # text fragments, attack-text snippets, or literal-translation
-    # mislabelings in the source data). エネルギー循環装置 also held
-    # (no Bulbapedia exact match; could be Energy Switch / Charge /
-    # Pickup depending on era). Per [[feedback-no-plausible-wrong-prices]],
+    # エネルギー回復, エネルギー検索, エネルギー根 — all confirmed by
+    # 2026-05-26 research to NOT be card names (flavor text fragments,
+    # attack-text snippets, or literal-translation mislabelings in the
+    # source data). エネルギー循環装置 also held (no Bulbapedia exact
+    # match; could be Energy Switch / Charge / Pickup depending on era).
+    # 二重虹のエネルギー and スーパーエネルギー検索 also confirmed
+    # not-real-cards.
+    # 悪エネルギー, 鋼エネルギー (PCG10-101/102), ロック闘エネルギー
+    # (M3-080) skipped due to set-context ambiguity (special vs basic
+    # variants share the bare name; multiple printed EN variants exist). Per [[feedback-no-plausible-wrong-prices]],
     # holding rather than guessing.
     #
     # ホロンエネルギー SYN at PCGP-114/115/116 are handled by per-card_id
