@@ -94,12 +94,22 @@ export function registerImageRoutes(app) {
       return c.body(null, 404);
     }
 
-    // 3. Regular cards proxy from official site
+    // 3. Regular cards proxy from official site, then PERSIST to R2 so we
+    //    only ever fetch each card from Bandai once. R2 is checked first
+    //    (step 1 above), so once a card is stored it never touches Bandai
+    //    again — this is what prevents the recurring hot-link IP block:
+    //    repeat traffic to Bandai drops to ~zero after the first fetch.
+    //    Falls back to the ephemeral edge cache only if R2 is unbound.
     const url = `https://en.onepiece-cardgame.com/images/cardlist/card/${cardId}.png`;
     const res = await proxyAndCache(url, { Referer: 'https://en.onepiece-cardgame.com/' });
     if (res) {
-      c.executionCtx.waitUntil(caches.default.put(new Request(url), res.clone()));
-      return res;
+      const buf = await res.arrayBuffer();
+      c.executionCtx.waitUntil(
+        c.env.IMAGES
+          ? c.env.IMAGES.put(`cards/${cardId}.png`, buf, { httpMetadata: { contentType: 'image/png' } })
+          : caches.default.put(new Request(url), new Response(buf, { headers: IMG_HEADERS })),
+      );
+      return new Response(buf, { headers: IMG_HEADERS });
     }
     return c.body(null, 404);
   });
