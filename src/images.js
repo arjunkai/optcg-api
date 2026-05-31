@@ -4,17 +4,57 @@ const IMG_HEADERS = {
   'Access-Control-Allow-Origin': '*',
 };
 
+// Bandai's CDN occasionally hot-link-blocks the CF Worker IP ranges and
+// fails the request slowly (30+ second hang then non-200). Without a
+// timeout the user sees a 30s spinner on every uncached card image. We
+// abort the direct fetch after 5s and fall through to wsrv.nl, which can
+// reach Bandai on our behalf and serves the response from its own CDN.
+const UPSTREAM_TIMEOUT_MS = 5000;
+const WSRV_TIMEOUT_MS = 10000;
+
+async function fetchWithTimeout(url, init = {}, timeoutMs = UPSTREAM_TIMEOUT_MS) {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 async function proxyAndCache(url, requestHeaders = {}) {
   const cacheKey = new Request(url);
   const cache = caches.default;
-  let response = await cache.match(cacheKey);
-  if (response) return response;
+  let cached = await cache.match(cacheKey);
+  if (cached) return cached;
 
-  const upstream = await fetch(url, { headers: requestHeaders });
-  if (upstream.status !== 200) return null;
+  // First try direct upstream (Bandai / TCGPlayer / whatever the caller
+  // points at). Short timeout — if it doesn't respond in 5s, drop and try
+  // the wsrv.nl fallback. Treat thrown errors and non-200 the same.
+  let upstream = null;
+  try {
+    const res = await fetchWithTimeout(url, { headers: requestHeaders }, UPSTREAM_TIMEOUT_MS);
+    if (res.status === 200) upstream = res;
+  } catch (_e) {
+    upstream = null;
+  }
 
-  response = new Response(upstream.body, { headers: IMG_HEADERS });
-  return response;
+  // Fallback through wsrv.nl. It re-proxies arbitrary URLs through its
+  // own CDN and absorbs intermittent upstream hot-link-blocking. We pass
+  // output=png so the result matches IMG_HEADERS. maxage=30d to keep the
+  // wsrv.nl edge cache warm.
+  if (!upstream) {
+    const proxied = `https://wsrv.nl/?url=${encodeURIComponent(url)}&output=png&maxage=30d`;
+    try {
+      const res = await fetchWithTimeout(proxied, {}, WSRV_TIMEOUT_MS);
+      if (res.status === 200) upstream = res;
+    } catch (_e) {
+      upstream = null;
+    }
+  }
+
+  if (!upstream) return null;
+  return new Response(upstream.body, { headers: IMG_HEADERS });
 }
 
 export function registerImageRoutes(app) {
