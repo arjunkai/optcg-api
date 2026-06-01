@@ -31,6 +31,16 @@ import argparse, json, re, statistics, sys, time, urllib.parse, urllib.request
 from datetime import datetime, timezone
 
 UA = "OPBindr-pricing/1.0 (https://opbindr.com; arjun@neuroplexlabs.com)"
+# Scrapling's lightweight HTTP Fetcher (real-browser TLS fingerprint + rotating
+# stealthy headers). Aucfree's robots allows us — this is politeness/robustness
+# on an allow-listed SSR site, NOT a Cloudflare/bot-wall bypass. Falls back to
+# urllib if scrapling isn't installed so the script stays runnable anywhere.
+try:
+    from scrapling.fetchers import Fetcher as _SF
+    _HAVE_SCRAPLING = True
+except Exception:
+    _SF = None
+    _HAVE_SCRAPLING = False
 EXCLUDE = re.compile(r'PSA|BGS|CGC|ARS|鑑定|最高評価|まとめ|セット|\d+枚|\bbox\b|英語版|english', re.I)
 MIN_MATCHES = 2
 FX_FALLBACK = 0.0064
@@ -53,6 +63,11 @@ def li(x):
 
 def fetch(q):
     url = "https://aucfree.com/search?q=" + urllib.parse.quote(q)
+    if _HAVE_SCRAPLING:
+        r = _SF.get(url, headers={"Accept-Language": "ja"}, stealthy_headers=True, timeout=30)
+        if r.status != 200:
+            raise RuntimeError(f"HTTP {r.status}")
+        return r.html_content
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "ja"})
     return urllib.request.urlopen(req, timeout=25).read().decode('utf-8', 'replace')
 
@@ -67,11 +82,18 @@ def parse_items(h):
     return out
 
 def price_card(card):
-    """Return (jpy, last_date, n) or None."""
+    """Return (result, fetch_errored).
+
+    result is (jpy, last_date, n) or None. fetch_errored is True only when
+    EVERY HTTP attempt for this card raised (no response at all) — the
+    circuit-breaker signal for an IP block. A card that fetched fine but had
+    no verified sold listings returns (None, False), which is a real no-market
+    result, not a block.
+    """
     setid = card['set_id'].upper()
     tok = SET_TOKEN.get(setid)
     if not tok:
-        return None  # no known number-token format for this set -> skip
+        return None, False  # no known number-token format for this set -> skip
     n = li(card['local_id'])
     tokc = tok.replace('-', r'\-?')
     # Verify: the local number (padded or not) sits next to the set token in
@@ -93,29 +115,33 @@ def price_card(card):
         queries.append(f"{nm} {n}")
     items = []
     seen_titles = set()
+    n_ok = n_err = 0
     for q in queries:
         try:
             for it in parse_items(fetch(q)):
                 if it[0] not in seen_titles:
                     seen_titles.add(it[0]); items.append(it)
+            n_ok += 1
         except Exception as e:
+            n_err += 1
             print(f"  {card['id']}: fetch ERR {e}", file=sys.stderr)
         raw0 = [(t, p, d) for t, p, d in items if not EXCLUDE.search(t) and verify.search(t)]
         if len(raw0) >= MIN_MATCHES:
             break
         time.sleep(1.0)
+    fetch_errored = (n_ok == 0 and n_err > 0)
     raw = [(t, p, d) for t, p, d in items if not EXCLUDE.search(t) and verify.search(t)]
     if len(raw) < MIN_MATCHES:
-        return None
+        return None, fetch_errored
     prices = sorted(p for _, p, _ in raw)
     if len(prices) >= 4:  # trim one extreme each end (stray graded/placeholder)
         prices = prices[1:-1]
     med = int(statistics.median(prices))
     # sanity: reject obvious placeholder repunit medians
     if str(med) in ('99999', '11111', '1234567') or med < 50:
-        return None
+        return None, fetch_errored
     last_date = next((d for _, _, d in raw if d), None)
-    return med, last_date, len(raw)
+    return (med, last_date, len(raw)), fetch_errored
 
 def main():
     ap = argparse.ArgumentParser()
@@ -150,15 +176,32 @@ def main():
 
     now = datetime.now(timezone.utc).isoformat(timespec='seconds')
     rows = []
+    consec_err = 0          # consecutive cards whose every fetch failed
+    BREAKER = 5             # trip the circuit breaker after this many in a row
+    aborted = False
     for i, c in enumerate(targets):
-        r = price_card(c)
+        r, errored = price_card(c)
+        if errored:
+            consec_err += 1
+            if consec_err >= BREAKER:
+                # An IP block looks like a run of total fetch failures. STOP —
+                # every further request prolongs the block (it ages out in
+                # tens of min to hours). Re-run gently from --start later.
+                print(f"\n!! CIRCUIT BREAKER: {consec_err} consecutive cards with no response "
+                      f"(card index {args.start + i}). Source is likely blocking. Stopping.\n"
+                      f"   Re-run later with: --start {args.start + i}", file=sys.stderr, flush=True)
+                aborted = True
+                break
+        else:
+            consec_err = 0
         if r:
             jpy, date, n = r
             rows.append((c['id'], jpy, round(jpy * rate, 2), date, n,
                          c.get('name_en') or c.get('name', '')))
             print(f"  [{i+1}/{len(targets)}] {c['id']:10} ¥{jpy:>8,} (${round(jpy*rate,2)}) n={n} {date}", flush=True)
         time.sleep(2.5)
-    print(f"\npriced {len(rows)} of {len(targets)} candidates")
+    status = "ABORTED (circuit breaker)" if aborted else "complete"
+    print(f"\npriced {len(rows)} of {len(targets)} candidates — {status}")
 
     # SQL + spot-check report
     sql = [f"-- Yahoo-sold (aucfree) last-sold backfill (auto-gen {now}) — {len(rows)} rows",
