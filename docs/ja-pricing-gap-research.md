@@ -55,6 +55,23 @@ ingested (Fullahead promo got done; Treca + gamepedia did not).
   spot-checks before any write. Measurement step can name-match for an upper-bound
   overlap; the WRITER must match strictly on set+number+name.
 
+### Overlap measurement (crawled 2026-06-02, `scripts/measure_treca_overlap.py`)
+Crawled cat01 to the 150-page cap = **7,500+ Pokémon products** (catalog is larger).
+**Name-overlap with our 1,474 vintage unpriced = 302 (20.5%)** — an order of
+magnitude above pokeca's 1.9% collapse → **clear GO**. But the crawl exposed that
+recovery splits into two very different problems, and the 20.5% is an inflated
+upper bound:
+- **e-Card / PCG / ADV / DP era → STRUCTURED + safe.** Names encode set+number+
+  printing: `【PCG】【004/052】フシギバナex`, `【1st】【PCG】【022/068】ボーマンダex`.
+  Strictly matchable on 【SET】+【NUM/TOTAL】 → the safe ~635-card win. Build this first.
+- **WOTC 旧裏 era → UNSTRUCTURED + risky.** `メタモンLV．15【旧裏】【状態C】` — name +
+  LV only, NO set code or number; 初版/1st vs unlimited as tags. Can't be mapped to
+  a specific PMCG/neo/VS set without high conflation risk. This inflates the 302.
+  Match only with strict name+LV+printing gates and accept low recovery, or defer.
+- **PSA/graded LEAK into cat01** (~5%: `【PSA10】【旧裏】ブラッキー ¥348,000`). The ct109
+  graded category is NOT a clean separator — the ingester MUST exclude
+  `【PSA\d】`/`鑑定`/`PSA10` tokens or a graded price lands on a raw base card.
+
 ### Ingester scope (mirror the yuyutei/hareruya/fullahead shared-lib pattern)
 1. **Measure overlap FIRST** — crawl Treca's vintage category pages, parse
    (name, set hint, number, 円 price), and match against our 2,009 vintage
