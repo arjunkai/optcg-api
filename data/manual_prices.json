@@ -6,6 +6,18 @@
   "OP13-043_p1":  { "price": null, "note": "Otama alt_art" },
   "OP14-033_p2":  { "price": null, "note": "Perona alt_art" },
 
+  "_chase_overrides": "Cross-verified 2026-06-11 (TCGPlayer market-history + PriceCharting sold-counts + eBay raw, graded excluded). These had phantom dotgg asking-price values; dotgg backfill now caps at $300 so they cannot recur automatically.",
+  "OP05-119_p2":  { "price": 5700, "note": "Gear5 Luffy MANGA SEC (tcg 527026). Raw ~$5700: TCGPlayer hist $5700 + PriceCharting $6000/49 sales + eBay $3k-5.7k. Was phantom $87500. NOTE: r2 shares tcg_id 527026 (conflation)." },
+  "OP05-119_r2":  { "price": null, "note": "CONFLATION: shares tcg_id 527026 with OP05-119_p2 (the real Manga SEC); 'Reprint' label is wrong. Left NULL until variant remap. Was phantom $87500." },
+  "OP09-118_p2":  { "price": 3750, "note": "Gol.D.Roger MANGA SEC EN (tcg 597065). Raw ~$3750: PriceCharting EN $3742/38 sales + eBay $3.5-6k. Was phantom $29995 (TCGPlayer listed-median, 0 sales)." },
+  "OP13-118_p3":  { "price": 8500, "note": "Luffy RED Super Alt Art ('Red Manga', tcg 657401). Raw ~$8500: PriceCharting $8522/23 sales; TCGPlayer chart $8849. Was phantom $59999. (p2=standard manga $2189 via tcgplayer is correct.)" },
+  "OP03-114_p3":  { "price": 880, "note": "Charlotte Linlin CHAMPIONSHIP 2024 promo (NOT alt-art). Raw ~$880: PriceCharting EN $876 + TCGPlayer last-market $898. Was phantom $4999.99 (seller sold-out placeholder)." },
+  "OP05-091_p3":  { "price": null, "note": "Rebecca CHAMPIONSHIP 2024 promo (NOT alt-art). Only 1 raw comp (~$1157, CN print); too thin to pin. NULL until a real EN raw sale. Was phantom $7000." },
+  "EB01-012_p3":  { "price": null, "note": "Phantom dotgg asking-price ($1700), NULL'd by $300 ceiling 2026-06-11. Research real raw value before pinning." },
+  "OP04-083_p2":  { "price": null, "note": "Phantom dotgg asking-price ($927), NULL'd by ceiling. Shares value with r1 — conflation smell. Research." },
+  "OP04-083_r1":  { "price": null, "note": "Phantom dotgg asking-price ($927), NULL'd by ceiling. Shares value with p2 — conflation smell. Research." },
+  "OP01-078_p2":  { "price": null, "note": "Phantom dotgg asking-price ($785), NULL'd by ceiling. Research real raw value." },
+
   "P-001_p6":     { "price": null, "note": "Monkey.D.Luffy promo alt_art — 6th variant" },
   "P-069_p5":     { "price": null, "note": "Koala promo alt_art" },
   "P-069_p6":     { "price": null, "note": "Koala promo alt_art" },

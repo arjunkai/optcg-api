@@ -38,6 +38,15 @@ def _fetch_json(url: str):
         return json.loads(r.read())
 
 DOTGG_BASE = "https://api.dotgg.gg/cgfw"
+
+# Sanity ceiling for dotgg-sourced prices. dotgg is the fallback tier (used only
+# when TCGPlayer has no sale for a card). For thin-market chase cards its number
+# is frequently TCGPlayer's *listed median* (an asking price), not a real
+# transaction — that produced phantom values like $87,500. Anything above this
+# is treated as asking-price noise: skipped here and logged for manual curation
+# in data/manual_prices.json. Genuinely high-value cards with real sales come
+# through the TCGPlayer pass (price_source='tcgplayer'), not this fallback.
+DOTGG_PRICE_CEILING = 300.0
 BATCH_SIZE = 200  # dotgg pagination limit
 WRANGLER_CMD = ["npx", "wrangler", "d1", "execute", "optcg-cards"]
 
@@ -144,6 +153,7 @@ def main() -> None:
 
     print("3. Matching unpriced -> dotgg...")
     matches = []
+    rejected_high = []
     for cid in unpriced:
         row = catalog.get(cid)
         if not row:
@@ -155,13 +165,29 @@ def main() -> None:
             price = to_float(row.get("foilPrice"))
         if price <= 0:
             continue
+        # Reject asking-price noise — see DOTGG_PRICE_CEILING note above.
+        if price > DOTGG_PRICE_CEILING:
+            rejected_high.append({
+                "card_id": cid,
+                "dotgg_price": round(price, 2),
+                "tcg_ids": to_tcg_ids(row.get("tcg_ids")),
+                "dotgg_slug": row.get("slug"),
+            })
+            continue
         matches.append({
             "card_id": cid,
             "price": round(price, 2),
             "tcg_ids": to_tcg_ids(row.get("tcg_ids")),
             "dotgg_slug": row.get("slug"),
         })
-    print(f"   {len(matches)} backfill-able cards\n")
+    print(f"   {len(matches)} backfill-able cards")
+    if rejected_high:
+        report = OUT_DIR / "dotgg_rejected_high.json"
+        report.write_text(json.dumps(rejected_high, indent=2), encoding="utf-8")
+        print(f"   WARNING: {len(rejected_high)} card(s) rejected above "
+              f"${DOTGG_PRICE_CEILING:.0f} (asking-price noise) -> {report}; "
+              f"curate in data/manual_prices.json")
+    print()
 
     now = int(time.time())
     sql_lines = build_update_sql(matches, now)

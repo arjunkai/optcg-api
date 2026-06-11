@@ -43,6 +43,13 @@ DATA_DIR = Path("data")
 RAW_DIR = DATA_DIR / "tcgplayer_raw"
 DOTGG_FILE = DATA_DIR / "dotgg_catalog.json"
 
+# Sanity ceiling for dotgg-only fallback prices (no TCGPlayer sale exists for
+# the card). Above this, dotgg's number is almost always the TCGPlayer listed
+# median (an asking price), not a real sale — the source of phantom values like
+# $87,500. Rejected entries are logged for manual curation in
+# data/manual_prices.json. See also backfill_prices_dotgg.py.
+DOTGG_PRICE_CEILING = 300.0
+
 
 def to_float(v) -> float:
     try:
@@ -107,6 +114,7 @@ def main() -> None:
 
     authoritative = 0
     dotgg_fallback = 0
+    dotgg_rejected_high = []
     no_dotgg_entry = []
 
     for card_id in by_id.keys():
@@ -127,6 +135,10 @@ def main() -> None:
         price = to_float(dotgg_row.get("price"))
         if price <= 0:
             price = to_float(dotgg_row.get("foilPrice"))
+        # Reject asking-price noise — see DOTGG_PRICE_CEILING note above.
+        if price > DOTGG_PRICE_CEILING:
+            dotgg_rejected_high.append({"card_id": card_id, "dotgg_price": round(price, 2), "tcg_ids": tcg_ids})
+            continue
         if price > 0:
             upsert(card_id, price, tcg_ids, "dotgg", "dotgg-only")
             dotgg_fallback += 1
@@ -134,6 +146,11 @@ def main() -> None:
     print(f"\nAuthoritative pass (dotgg tcg_id -> TCGPlayer scrape): {authoritative}")
     print(f"Dotgg-own-price fallback:                              {dotgg_fallback}")
     print(f"Cards NOT in dotgg:                                    {len(no_dotgg_entry)}")
+    if dotgg_rejected_high:
+        rej = DATA_DIR / "dotgg_rejected_high.json"
+        rej.write_text(json.dumps(dotgg_rejected_high, indent=2), encoding="utf-8")
+        print(f"Dotgg prices rejected above ${DOTGG_PRICE_CEILING:.0f} (asking-price noise): "
+              f"{len(dotgg_rejected_high)} -> {rej}; curate in data/manual_prices.json")
 
     # ── 3. Positional fallback ONLY for cards dotgg doesn't know about.
     # Uses the old logic — builds claim-state fresh, iterates sets in release order.
