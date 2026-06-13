@@ -6,7 +6,7 @@ import { registerImageRoutes } from './images.js';
 import { registerDocsRoutes } from './docs.js';
 import { gate } from './auth.js';
 import { registerPokemonRoutes } from './pokemon/index.js';
-import { checkUsageAlerts } from './cron.js';
+import { checkUsageAlerts, warmColdImages } from './cron.js';
 
 const CORS_ALLOWED_EXACT = [
   'https://opbindr.com',
@@ -66,5 +66,8 @@ export default {
   fetch: app.fetch,
   scheduled: async (controller, env, ctx) => {
     ctx.waitUntil(checkUsageAlerts(env));
+    // Self-healing: warm any cold card images into R2 each run (incl. new sets),
+    // so no card ever depends on a flaky live Bandai fetch. See src/cron.js.
+    ctx.waitUntil(warmColdImages(env));
   },
 };

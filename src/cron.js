@@ -17,8 +17,79 @@
 //      (paste the URL when prompted)
 // If the secret isn't set the cron is a no-op — safe to deploy first.
 
+import { warmCardImage } from './images.js';
+
 const DAILY_LIMIT = 100_000;
 const ALERT_THRESHOLD_PCT = 0.8;
+
+// Self-healing card-image warm sweep.
+//
+// optcg-api `/images/:id` serves from R2 first, but a card NOT yet in R2 falls
+// back to a live fetch (Bandai -> wsrv) that intermittently 404s because Bandai
+// hot-link-blocks the CF Worker IPs. That made some cards show a tinted
+// placeholder, with the failing set shifting on every reload. Each successful
+// fetch persists to R2, after which that card is served reliably forever.
+//
+// This cron proactively pulls cold cards into R2 so NO card depends on a live
+// fetch — including newly-released sets, which is what makes it permanent
+// rather than a one-off. It sweeps the catalog in bounded batches via a Cache
+// API cursor and caps live fetches per run to stay well under the Worker
+// subrequest limit. Purely additive: only writes to the R2 image cache, never
+// touches card rows or counts.
+const WARM_SCAN = 300;       // catalog rows R2-head-checked per run (cheap binding ops)
+const WARM_FETCH_CAP = 24;   // max live wsrv fetches per run (subrequest budget)
+const WARM_CONCURRENCY = 6;  // concurrent warms (gentle on wsrv; bounded wall-clock)
+
+export async function warmColdImages(env) {
+  if (!env?.DB || !env?.IMAGES) return;
+
+  const cache = caches.default;
+  const cursorKey = new Request('https://warm.local/img-cursor');
+  let offset = 0;
+  try {
+    const cur = await cache.match(cursorKey);
+    if (cur) offset = parseInt(await cur.text(), 10) || 0;
+  } catch { offset = 0; }
+
+  let rows = [];
+  try {
+    const res = await env.DB.prepare(
+      "SELECT id FROM cards WHERE id NOT LIKE 'DON-%' ORDER BY id LIMIT ? OFFSET ?"
+    ).bind(WARM_SCAN, offset).all();
+    rows = res.results || [];
+  } catch (err) {
+    console.error('warm: D1 query failed:', err?.message || err);
+    return;
+  }
+
+  // Wrap the cursor at the end of the catalog so the sweep keeps cycling.
+  const nextOffset = rows.length < WARM_SCAN ? 0 : offset + WARM_SCAN;
+
+  // Phase 1: find cold cards (R2 head is a binding op, not a subrequest), capped.
+  const cold = [];
+  for (const { id } of rows) {
+    if (cold.length >= WARM_FETCH_CAP) break;
+    try {
+      if (!(await env.IMAGES.head(`cards/${id}.png`))) cold.push(id);
+    } catch { /* head failure -> treat as not-cold; next sweep retries */ }
+  }
+
+  // Phase 2: warm cold cards with bounded concurrency.
+  let warmed = 0;
+  for (let i = 0; i < cold.length; i += WARM_CONCURRENCY) {
+    const batch = cold.slice(i, i + WARM_CONCURRENCY);
+    const results = await Promise.all(batch.map((id) => warmCardImage(env, id)));
+    warmed += results.filter((s) => s === 'warmed').length;
+  }
+
+  try {
+    await cache.put(cursorKey, new Response(String(nextOffset), {
+      headers: { 'Cache-Control': 'max-age=2592000' },
+    }));
+  } catch { /* cursor advance is best-effort; worst case we re-scan the window */ }
+
+  console.log(`warm: offset=${offset} scanned=${rows.length} cold=${cold.length} warmed=${warmed} next=${nextOffset}`);
+}
 
 export async function checkUsageAlerts(env) {
   if (!env?.DB || !env?.DISCORD_USAGE_WEBHOOK_URL) return;

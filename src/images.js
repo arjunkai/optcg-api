@@ -63,6 +63,28 @@ async function proxyAndCache(url, requestHeaders = {}) {
   return new Response(upstream.body, { headers: IMG_HEADERS });
 }
 
+// Proactively warm a regular OPTCG card image into R2 (used by the cron sweep
+// in cron.js). Goes STRAIGHT through wsrv.nl: the Worker's own IP is
+// hot-link-blocked by Bandai, so the request-path direct fetch almost always
+// dead-waits then falls through to wsrv anyway — skipping it here saves the
+// 2s timeout per card and a subrequest. Idempotent (no-op if already in R2),
+// never throws. Returns 'cached' | 'warmed' | 'failed'.
+export async function warmCardImage(env, cardId) {
+  try {
+    if (!env?.IMAGES) return 'failed';
+    if (await env.IMAGES.head(`cards/${cardId}.png`)) return 'cached';
+    const bandai = `https://en.onepiece-cardgame.com/images/cardlist/card/${cardId}.png`;
+    const proxied = `https://wsrv.nl/?url=${encodeURIComponent(bandai)}&output=png&maxage=30d`;
+    const res = await fetchWithTimeout(proxied, {}, WSRV_TIMEOUT_MS);
+    if (res.status !== 200) return 'failed';
+    const buf = await res.arrayBuffer();
+    await env.IMAGES.put(`cards/${cardId}.png`, buf, { httpMetadata: { contentType: 'image/png' } });
+    return 'warmed';
+  } catch {
+    return 'failed';
+  }
+}
+
 export function registerImageRoutes(app) {
   app.get('/images/:card_id', async (c) => {
     const cardId = c.req.param('card_id');
