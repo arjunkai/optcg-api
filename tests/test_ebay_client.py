@@ -142,46 +142,53 @@ import pytest
 import respx
 import httpx
 
-from scripts.ebay_client import EbayClient, TOKEN_URL
+from scripts.ebay_client import EbayClient, EbayAccessDeniedError, TOKEN_URL, BROWSE_SEARCH_URL
 
 
 @pytest.fixture
-def token_path(tmp_path):
-    return tmp_path / "ebay_token.json"
+def token_dir(tmp_path):
+    d = tmp_path / "ebay_tokens"
+    d.mkdir()
+    return d
+
+
+def _browse_cache(token_dir):
+    """get_token(SCOPE_BROWSE) caches to <token_dir>/default.json."""
+    return token_dir / "default.json"
 
 
 @respx.mock
-def test_get_token_fetches_and_caches(token_path):
+def test_get_token_fetches_and_caches(token_dir):
     respx.post(TOKEN_URL).mock(
         return_value=httpx.Response(
             200,
             json={"access_token": "abc123", "expires_in": 7200, "token_type": "Bearer"},
         )
     )
-    client = EbayClient(app_id="app", cert_id="cert", token_path=token_path)
+    client = EbayClient(app_id="app", cert_id="cert", token_dir=token_dir)
     token = client.get_token()
     assert token == "abc123"
 
-    cached = json.loads(token_path.read_text())
+    cached = json.loads(_browse_cache(token_dir).read_text())
     assert cached["access_token"] == "abc123"
     assert cached["expires_at"] > time.time() + 7000  # 2hr ttl with some slack
 
 
 @respx.mock
-def test_get_token_uses_cache_when_fresh(token_path):
-    token_path.write_text(json.dumps({
+def test_get_token_uses_cache_when_fresh(token_dir):
+    _browse_cache(token_dir).write_text(json.dumps({
         "access_token": "cached",
         "expires_at": time.time() + 3600,
     }))
     route = respx.post(TOKEN_URL).mock(return_value=httpx.Response(500))
-    client = EbayClient(app_id="app", cert_id="cert", token_path=token_path)
+    client = EbayClient(app_id="app", cert_id="cert", token_dir=token_dir)
     assert client.get_token() == "cached"
     assert not route.called  # never hit the network
 
 
 @respx.mock
-def test_get_token_refreshes_when_expired(token_path):
-    token_path.write_text(json.dumps({
+def test_get_token_refreshes_when_expired(token_dir):
+    _browse_cache(token_dir).write_text(json.dumps({
         "access_token": "stale",
         "expires_at": time.time() - 10,
     }))
@@ -191,26 +198,25 @@ def test_get_token_refreshes_when_expired(token_path):
             json={"access_token": "fresh", "expires_in": 7200, "token_type": "Bearer"},
         )
     )
-    client = EbayClient(app_id="app", cert_id="cert", token_path=token_path)
+    client = EbayClient(app_id="app", cert_id="cert", token_dir=token_dir)
     assert client.get_token() == "fresh"
 
 
 @respx.mock
-def test_get_token_raises_on_auth_failure(token_path):
+def test_get_token_raises_on_auth_failure(token_dir):
+    # 401/403 surface as EbayAccessDeniedError (a RuntimeError subclass) with a
+    # scope-specific hint, not the generic "OAuth failed" path.
     respx.post(TOKEN_URL).mock(
         return_value=httpx.Response(401, json={"error": "invalid_client"})
     )
-    client = EbayClient(app_id="bad", cert_id="bad", token_path=token_path)
-    with pytest.raises(RuntimeError, match="eBay OAuth failed"):
+    client = EbayClient(app_id="bad", cert_id="bad", token_dir=token_dir)
+    with pytest.raises(EbayAccessDeniedError, match="rejected scope"):
         client.get_token()
 
 
-from scripts.ebay_client import BROWSE_SEARCH_URL
-
-
 @respx.mock
-def test_search_returns_item_summaries(token_path):
-    token_path.write_text(json.dumps({
+def test_search_returns_item_summaries(token_dir):
+    _browse_cache(token_dir).write_text(json.dumps({
         "access_token": "tok",
         "expires_at": time.time() + 3600,
     }))
@@ -223,28 +229,28 @@ def test_search_returns_item_summaries(token_path):
             "total": 2,
         })
     )
-    client = EbayClient(app_id="a", cert_id="c", token_path=token_path)
+    client = EbayClient(app_id="a", cert_id="c", token_dir=token_dir)
     items = client.search("OP01-001 Luffy", limit=50)
     assert len(items) == 2
     assert items[0]["title"] == "OP01-001 Luffy"
 
 
 @respx.mock
-def test_search_returns_empty_list_on_no_match(token_path):
-    token_path.write_text(json.dumps({
+def test_search_returns_empty_list_on_no_match(token_dir):
+    _browse_cache(token_dir).write_text(json.dumps({
         "access_token": "tok",
         "expires_at": time.time() + 3600,
     }))
     respx.get(BROWSE_SEARCH_URL).mock(
         return_value=httpx.Response(200, json={"total": 0})
     )
-    client = EbayClient(app_id="a", cert_id="c", token_path=token_path)
+    client = EbayClient(app_id="a", cert_id="c", token_dir=token_dir)
     assert client.search("nonexistent card", limit=50) == []
 
 
 @respx.mock
-def test_search_retries_on_429_then_succeeds(token_path, monkeypatch):
-    token_path.write_text(json.dumps({
+def test_search_retries_on_429_then_succeeds(token_dir, monkeypatch):
+    _browse_cache(token_dir).write_text(json.dumps({
         "access_token": "tok",
         "expires_at": time.time() + 3600,
     }))
@@ -255,7 +261,7 @@ def test_search_retries_on_429_then_succeeds(token_path, monkeypatch):
         httpx.Response(429),
         httpx.Response(200, json={"itemSummaries": [{"title": "ok", "price": {"value": "5.00", "currency": "USD"}}]}),
     ])
-    client = EbayClient(app_id="a", cert_id="c", token_path=token_path)
+    client = EbayClient(app_id="a", cert_id="c", token_dir=token_dir)
     items = client.search("q", limit=50)
     assert len(items) == 1
     assert route.call_count == 3
@@ -264,13 +270,13 @@ def test_search_retries_on_429_then_succeeds(token_path, monkeypatch):
 
 
 @respx.mock
-def test_search_gives_up_after_max_retries(token_path, monkeypatch):
-    token_path.write_text(json.dumps({
+def test_search_gives_up_after_max_retries(token_dir, monkeypatch):
+    _browse_cache(token_dir).write_text(json.dumps({
         "access_token": "tok",
         "expires_at": time.time() + 3600,
     }))
     monkeypatch.setattr("scripts.ebay_client.time.sleep", lambda s: None)
     respx.get(BROWSE_SEARCH_URL).mock(return_value=httpx.Response(429))
-    client = EbayClient(app_id="a", cert_id="c", token_path=token_path)
+    client = EbayClient(app_id="a", cert_id="c", token_dir=token_dir)
     with pytest.raises(RuntimeError, match="rate limited"):
         client.search("q", limit=50)
