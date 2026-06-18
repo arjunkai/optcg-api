@@ -1,5 +1,12 @@
 import { parseCard, parseCards } from './db.js';
 
+// OPTCG supported languages. 'en' is the default for every endpoint so
+// existing (no ?lang) callers are unchanged. Unknown values fall back to en.
+const SUPPORTED_LANGS = new Set(['en', 'ja']);
+function normLang(raw) {
+  return SUPPORTED_LANGS.has(raw) ? raw : 'en';
+}
+
 export function registerCardRoutes(app) {
   // Single-shot "every card" endpoint. Exists so the OPBindr client can
   // warm its registry with ONE request instead of 6 paginated ones.
@@ -30,6 +37,9 @@ export function registerCardRoutes(app) {
       if (hit) return hit;
     }
 
+    // EN-only by design. This is the legacy single-shot fallback the client
+    // uses only when /cards/index 404s (older deployments). The language-aware
+    // path is /cards/index (both names inline) + /cards/:id?lang= for details.
     const { results } = await c.env.DB.prepare(
       'SELECT * FROM cards ORDER BY id ASC'
     ).all();
@@ -77,31 +87,62 @@ export function registerCardRoutes(app) {
       if (hit) return hit;
     }
 
+    // Both names inline + per-language availability, so the OPBindr client
+    // holds ONE row per card (not a row per language). This is the OPTCG
+    // language model: One Piece is one catalog with translated display, so
+    // the registry never needs a per-language key and EN/JA can't collide.
+    //   - name      : EN canonical display (COALESCE so a pre-016 row without
+    //                 a translation still resolves to cards.name)
+    //   - name_ja   : Japanese display, NULL when no JA translation exists
+    //   - name_en   : English search alias (= EN name; for JA-exclusives it's
+    //                 the romaji/EN alias the importer stored on the JA row)
+    //   - langs     : which languages this card is available in. A JA-exclusive
+    //                 has no EN translation -> ['ja'] -> hidden in EN binders;
+    //                 an EN-only card (e.g. Treasure Rare) -> ['en'].
+    //   - price_ja  : real JA market price (never the EN price on a JA card).
     const { results } = await c.env.DB.prepare(`
-      SELECT id, name, category, rarity, colors, attributes, types,
-             cost, power, parallel, variant_type, finish,
-             price, price_source
-      FROM cards
-      ORDER BY id ASC
+      SELECT c.id, c.category, c.rarity, c.colors, c.attributes, c.types,
+             c.cost, c.power, c.parallel, c.variant_type, c.finish,
+             c.price, c.price_source, c.price_ja, c.price_source_ja,
+             COALESCE(en.name, c.name)       AS name,
+             ja.name                          AS name_ja,
+             COALESCE(en.name, ja.name_en)    AS name_en,
+             CASE WHEN en.card_id IS NOT NULL THEN 1 ELSE 0 END AS has_en,
+             CASE WHEN ja.card_id IS NOT NULL THEN 1 ELSE 0 END AS has_ja
+      FROM cards c
+      LEFT JOIN card_translations en ON en.card_id = c.id AND en.language = 'en'
+      LEFT JOIN card_translations ja ON ja.card_id = c.id AND ja.language = 'ja'
+      ORDER BY c.id ASC
     `).all();
 
-    const slim = results.map(row => ({
-      id: row.id,
-      name: row.name,
-      category: row.category,
-      rarity: row.rarity,
-      colors: row.colors ? JSON.parse(row.colors) : null,
-      attributes: row.attributes ? JSON.parse(row.attributes) : null,
-      types: row.types ? JSON.parse(row.types) : null,
-      cost: row.cost,
-      power: row.power,
-      parallel: Boolean(row.parallel),
-      variant_type: row.variant_type,
-      finish: row.finish,
-      price: row.price,
-      price_source: row.price_source,
-      dominant_color: null, // Phase 3 fills this in once the D1 column exists
-    }));
+    const slim = results.map(row => {
+      const langs = [];
+      if (row.has_en) langs.push('en');
+      if (row.has_ja) langs.push('ja');
+      if (langs.length === 0) langs.push('en'); // defensive: pre-backfill rows
+      return {
+        id: row.id,
+        name: row.name,
+        name_ja: row.name_ja,
+        name_en: row.name_en === row.name ? null : row.name_en, // null when alias == display (EN rows)
+        langs,
+        category: row.category,
+        rarity: row.rarity,
+        colors: row.colors ? JSON.parse(row.colors) : null,
+        attributes: row.attributes ? JSON.parse(row.attributes) : null,
+        types: row.types ? JSON.parse(row.types) : null,
+        cost: row.cost,
+        power: row.power,
+        parallel: Boolean(row.parallel),
+        variant_type: row.variant_type,
+        finish: row.finish,
+        price: row.price,
+        price_source: row.price_source,
+        price_ja: row.price_ja,
+        price_source_ja: row.price_source_ja,
+        dominant_color: null, // Phase 3 fills this in once the D1 column exists
+      };
+    });
 
     const response = new Response(JSON.stringify({
       count: slim.length,
@@ -166,11 +207,34 @@ export function registerCardRoutes(app) {
     const m = raw.match(/^([^_]+)(_[a-zA-Z]+\d+)?$/);
     const cardId = m ? m[1].toUpperCase() + (m[2] ? m[2].toLowerCase() : '') : raw.toUpperCase();
 
+    const lang = normLang(c.req.query('lang'));
+
     const card = await c.env.DB.prepare(
       'SELECT * FROM cards WHERE id = ?'
     ).bind(cardId).first();
 
     if (!card) return c.json({ detail: `Card '${cardId}' not found` }, 404);
+
+    // Merge the requested language's display fields over the base row. Fall
+    // back to the EN translation when the requested language has no row, so
+    // the response always has a name and never 500s on a missing translation.
+    const tr =
+      (await c.env.DB.prepare(
+        'SELECT name, name_en, image_url, effect, trigger_text FROM card_translations WHERE card_id = ? AND language = ?'
+      ).bind(cardId, lang).first())
+      || (lang !== 'en'
+        ? await c.env.DB.prepare(
+            'SELECT name, name_en, image_url, effect, trigger_text FROM card_translations WHERE card_id = ? AND language = ?'
+          ).bind(cardId, 'en').first()
+        : null);
+
+    if (tr) {
+      if (tr.name != null) card.name = tr.name;
+      if (tr.image_url != null) card.image_url = tr.image_url;
+      if (tr.effect != null) card.effect = tr.effect;
+      if (tr.trigger_text != null) card.trigger_text = tr.trigger_text;
+      card.name_en = tr.name_en ?? null;
+    }
 
     const { results: sets } = await c.env.DB.prepare(`
       SELECT s.* FROM sets s
@@ -179,7 +243,7 @@ export function registerCardRoutes(app) {
       ORDER BY s.pack_id
     `).bind(cardId).all();
 
-    return c.json({ ...parseCard(card), sets });
+    return c.json({ ...parseCard(card), lang, sets });
   });
 
   app.get('/cards', async (c) => {

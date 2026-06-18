@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS card_translations;
 DROP TABLE IF EXISTS card_price_history;
 DROP TABLE IF EXISTS card_sets;
 DROP TABLE IF EXISTS cards;
@@ -35,7 +36,28 @@ CREATE TABLE cards (
   delta_7d_price REAL,
   tcg_ids TEXT,
   price_updated_at INTEGER,
-  price_source TEXT
+  price_source TEXT,
+  -- Per-language Japanese price (real JA market value; never the EN price on a
+  -- JA card). EN price stays in the columns above. See migration 016.
+  price_ja REAL,
+  price_source_ja TEXT,
+  price_updated_at_ja INTEGER
+);
+
+-- Per-language display fields for OPTCG. Only name/image/effect/trigger vary
+-- by language; everything game-neutral stays on `cards`. name_en is the
+-- canonical English alias for cross-script search (NULL on EN rows). One
+-- Piece is one catalog with translated display, so this is a side-table —
+-- NOT a denormalized row-per-(card,lang) like ptcg_cards. See migration 016.
+CREATE TABLE card_translations (
+  card_id      TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  language     TEXT NOT NULL CHECK (language IN ('en', 'ja')),
+  name         TEXT NOT NULL,
+  name_en      TEXT,
+  image_url    TEXT,
+  effect       TEXT,
+  trigger_text TEXT,
+  PRIMARY KEY (card_id, language)
 );
 
 CREATE TABLE card_sets (
@@ -61,3 +83,5 @@ CREATE INDEX idx_cards_price_updated_at ON cards(price_updated_at);
 CREATE INDEX idx_cards_price_source ON cards(price_source);
 CREATE INDEX idx_card_sets_set_id ON card_sets(set_id);
 CREATE INDEX idx_card_sets_card_id ON card_sets(card_id);
+CREATE INDEX idx_card_translations_language ON card_translations(language);
+CREATE INDEX idx_card_translations_name ON card_translations(language, name);

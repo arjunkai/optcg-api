@@ -88,13 +88,44 @@ export async function warmCardImage(env, cardId) {
 export function registerImageRoutes(app) {
   app.get('/images/:card_id', async (c) => {
     const cardId = c.req.param('card_id');
+    // Japanese art lives under a separate R2 prefix (cards/ja/:id) and comes
+    // from the JA official host. DON!! images are language-neutral synthetic
+    // scans, so they ignore ?lang and always use the EN path.
+    const lang = (c.req.query('lang') === 'ja' && !cardId.startsWith('DON-')) ? 'ja' : 'en';
+    const r2Key = lang === 'ja' ? `cards/ja/${cardId}.png` : `cards/${cardId}.png`;
 
-    // 1. R2 first (high-res curated images, including DON PDFs)
+    // 1. R2 first (high-res curated images, including DON PDFs). Lang-keyed.
     if (c.env.IMAGES) {
-      const r2Object = await c.env.IMAGES.get(`cards/${cardId}.png`);
+      const r2Object = await c.env.IMAGES.get(r2Key);
       if (r2Object) {
         return new Response(r2Object.body, { headers: IMG_HEADERS });
       }
+    }
+
+    // 1b. JA: proxy the Japanese official scan, persist under cards/ja/:id.
+    //     If the JA host has no image at this id (the JA art is identical to
+    //     EN, or simply absent), fall through to the EN image below so the JA
+    //     binder still renders art — never a broken image. The EN bytes are
+    //     cached under the EN key (cards/:id), NOT the JA key, so a future
+    //     curated JA scan still wins once it exists.
+    if (lang === 'ja') {
+      const jaUrl = `https://www.onepiece-cardgame.com/images/cardlist/card/${cardId}.png`;
+      const jaRes = await proxyAndCache(jaUrl, { Referer: 'https://www.onepiece-cardgame.com/' });
+      if (jaRes) {
+        const buf = await jaRes.arrayBuffer();
+        c.executionCtx.waitUntil(
+          c.env.IMAGES
+            ? c.env.IMAGES.put(r2Key, buf, { httpMetadata: { contentType: 'image/png' } })
+            : caches.default.put(new Request(jaUrl), new Response(buf, { headers: IMG_HEADERS })),
+        );
+        return new Response(buf, { headers: IMG_HEADERS });
+      }
+      // JA art unavailable → serve the EN R2 object if we already have it.
+      if (c.env.IMAGES) {
+        const enObj = await c.env.IMAGES.get(`cards/${cardId}.png`);
+        if (enObj) return new Response(enObj.body, { headers: IMG_HEADERS });
+      }
+      // else fall through to the EN upstream block below.
     }
 
     // 2. DON cards fall back to TCGPlayer CDN (until mapped to R2)
