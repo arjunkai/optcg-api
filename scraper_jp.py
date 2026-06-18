@@ -246,7 +246,10 @@ async def main() -> None:
           .filter(o => o.value)
           .map(o => {
             const label = o.textContent.replace(/<br[^>]*>/gi, ' ').replace(/\\s+/g, ' ').trim();
-            const m = label.match(/\\[([A-Z0-9\\-]+)\\]\\s*$/);
+            // JA labels use FULLWIDTH brackets 【ST-11】, not ASCII [ST-11];
+            // match both so set_id is the real code (ST-11) and doesn't fall
+            // back to the numeric pack_id (which produced junk numeric sets).
+            const m = label.match(/[\\[【]([A-Z0-9\\-]+)[\\]】]\\s*$/);
             return { pack_id: o.value, label, set_id: m ? m[1] : o.value };
           })
         """)

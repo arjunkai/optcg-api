@@ -92,8 +92,6 @@ async function resolveImage(url) {
 async function build() {
   const trLines = [];      // card_translations (shared + exclusive)
   const cardLines = [];    // cards rows (exclusives only)
-  const setRowLines = [];  // sets rows (exclusives only)
-  const cardSetLines = []; // card_sets rows (exclusives only) — FK → cards + sets
   const disagreements = [];
   let shared = 0, exclusive = 0;
 
@@ -116,7 +114,14 @@ async function build() {
         `ON CONFLICT(card_id, language) DO UPDATE SET name=excluded.name, name_en=excluded.name_en, image_url=excluded.image_url, effect=excluded.effect, trigger_text=excluded.trigger_text;`
       );
     } else {
-      // ── Case 2: JA-exclusive → cards + card_sets + JA translation (no EN) ──
+      // ── Case 2: JA-exclusive → cards row + JA translation (no EN) ──
+      // Deliberately do NOT create `sets` / `card_sets` rows here. The JA series
+      // labels use fullwidth brackets 【ST-11】 so the scraper's set_id often
+      // falls back to the numeric pack_id (550011); inserting those as `sets`
+      // created junk numeric sets that the Dugong bot announced as bogus "New
+      // One Piece Set: 550023" alerts. The OPBindr frontend derives OPTCG set
+      // membership from the card_id (getSetCode), not the card_sets table, so
+      // these cards still appear under their real set without any sets row.
       exclusive++;
       cardLines.push(
         `INSERT INTO cards (id, base_id, parallel, variant_type, name, rarity, category, image_url, colors, cost, power, counter, attributes, types) ` +
@@ -126,14 +131,6 @@ async function build() {
         // the translation row, so cards.effect/trigger_text stay NULL here.
         `ON CONFLICT(id) DO UPDATE SET name=excluded.name, rarity=excluded.rarity, category=excluded.category, image_url=excluded.image_url, colors=excluded.colors, cost=excluded.cost, power=excluded.power, counter=excluded.counter, attributes=excluded.attributes;`
       );
-      if (c.set_id) {
-        setRowLines.push(
-          `INSERT INTO sets (id, pack_id, label, card_count) VALUES (${escSql(c.set_id)}, ${escSql(c.pack_id)}, ${escSql(c.set_id)}, 0) ON CONFLICT(id) DO NOTHING;`
-        );
-        cardSetLines.push(
-          `INSERT INTO card_sets (card_id, set_id, pack_id) VALUES (${escSql(c.id)}, ${escSql(c.set_id)}, ${escSql(c.pack_id)}) ON CONFLICT(card_id, set_id) DO NOTHING;`
-        );
-      }
       // JA translation row (no EN alias from scrape → name_en NULL; a manual
       // romaji alias can be added later for latin-script search).
       trLines.push(
@@ -144,10 +141,9 @@ async function build() {
     }
   }
 
-  // FK-safe order: sets + cards (no FK) → card_sets (FK→cards+sets) →
-  // translations (FK→cards). Emitting card_sets before its cards row trips
-  // FOREIGN KEY constraint failed (D1 enforces FKs).
-  const lines = [...setRowLines, ...cardLines, ...cardSetLines, ...trLines];
+  // FK-safe order: cards (no FK) before translations (FK → cards.id). No
+  // sets/card_sets are written (see Case 2) so there's nothing else to order.
+  const lines = [...cardLines, ...trLines];
 
   writeFileSync(`${DATA_DIR}/_jp_disagreements.json`, JSON.stringify(disagreements, null, 2), 'utf-8');
   console.log(`JA cards: ${jaCards.length}  (shared: ${shared}, exclusive: ${exclusive})`);
