@@ -60,6 +60,7 @@ from scripts.lib.yuyutei_opc_scraper import (
     REQ_INTERVAL_S,
     USER_AGENT,
     get_jpy_to_usd_rate,
+    home_image_folders,
     scrape_opc_set,
 )
 from scripts.wrangler_retry import run_wrangler
@@ -187,9 +188,8 @@ def match(catalog: dict[str, list[dict]], d1_cards: list[dict], fx: float,
                 if img in seen_img:
                     continue
                 seen_img.add(img)
-            home = r["card_number"].split("-", 1)[0].lower()
             m = img_set_re.search(img or "")
-            if m and m.group(1) != home:
+            if m and m.group(1) not in home_image_folders(r["card_number"]):
                 dropped_reprint += 1
                 continue  # reprint of this number in another set — not the base card
             key = "parallels" if r["is_parallel"] else "base"

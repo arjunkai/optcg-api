@@ -48,16 +48,27 @@ IMAGE_HOST = "card.yuyu-tei.jp"
 REQ_INTERVAL_S = 1.0
 USER_AGENT = "opbindr-optcg-importer/1.0 (+https://opbindr.com; contact arjun@neuroplexlabs.com)"
 
-# Every `opc` set page on Yuyutei (confirmed live 2026-06-18 from the set
-# selector). DON cards have their own page too. Promos (P-001..) are NOT a
-# single set page on Yuyutei (range-filtered) and are handled separately.
+# Every `opc` set page on Yuyutei (confirmed live 2026-06-18/20 from the set
+# selector). DON cards have their own page. Promos (P-001..P-200) live on two
+# range pages, promo-100 and promo-200 — their card_number prefix is "P" but the
+# image folder is promo-100/promo-200 (the matcher's home-set filter knows this).
 OPC_SET_CODES: list[str] = (
     [f"op{n:02d}" for n in range(1, 17)]       # op01 .. op16
     + [f"eb{n:02d}" for n in range(1, 5)]      # eb01 .. eb04
     + [f"st{n:02d}" for n in range(1, 31)]     # st01 .. st30
     + ["prb01", "prb02"]
+    + ["promo-100", "promo-200"]
     + ["don"]
 )
+
+# A card_number's set prefix maps to its canonical Yuyutei image folder(s).
+# Identity for normal sets (OP16 -> op16); promos (prefix "P") live in the two
+# promo range folders.
+def home_image_folders(card_number: str) -> set[str]:
+    prefix = card_number.split("-", 1)[0].lower()
+    if prefix == "p":
+        return {"promo-100", "promo-200"}
+    return {prefix}
 
 # Bare (base) rarity tokens. Anything else with a "P-" prefix, or SP / TR, is a
 # parallel/alt-art in our id-space (verified: Special + Treasure Rare are 100%
