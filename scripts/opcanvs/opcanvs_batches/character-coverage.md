@@ -1,10 +1,11 @@
 # OPCanvs character resolution coverage
 - distinct card-character names: 854
-- enriched (wikidata+fandom): 795 (93.1%)
-  - wikidata: 645 | fandom: 150 (combo 23)
-- bare card-original pages: 59 (6.9%) — still get a character page
-- roster (distinct characters incl. combo members): 694
-- card_characters rows: 4300 (covers 4254 distinct character/leader cards = 100%; 0 dup pairs deduped)
+- enriched (wikidata+fandom): 801 (93.8%)
+  - wikidata: 651 | fandom: 150 (combo 23)
+- bare card-original pages: 53 (6.2%) — still get a character page
+- roster (distinct characters incl. combo members): 688
+- card_characters rows: 4300 (covers 4254 distinct Character+Leader cards = 100% of those; 0 dup pairs deduped)
+- NOTE: Event/Stage/DON cards intentionally get no character row (not character portraits).
 
 ## Bare card-original names (curation candidates)
 ```
@@ -46,7 +47,6 @@ Younger Brother Marine
 アン
 インペルダウンの囚人
 カリーナ
-ゲッコー・モリア
 ゴルゴン三姉妹
 ゴードン
 サンジ&プリン
@@ -54,14 +54,9 @@ Younger Brother Marine
 チャカ&ペル
 バカラ
 パシフィスタ
-ビクトリア・シンドリー
 ビンズ
-ベビー５
-ポートガス・Ｄ・エース
-マーシャル・Ｄ・ティーチ
 ミス・ダブルフィンガー(ザラ)
 ミス・バレンタイン(ミキータ)
-モンキー・Ｄ・ルフィ
 リューマ
 リリス
 人斬り鎌ぞう

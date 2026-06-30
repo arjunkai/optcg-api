@@ -11,6 +11,9 @@ const norm = (s) => !s ? '' : s.normalize('NFKD').replace(/[̀-ͯ]/g, '')
   .replace(/[.・]/g, ' ').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
 const hasJP = (s) => /[぀-ヿ一-龯]/.test(s || '');
 const deWano = (n) => n.replace(/^o /, '').replace(/ (taro|tarou|juro|juurou|gorou)$/, '');
+// JA key: NFKC folds full-width Ｄ→D, unifies middle-dot variants, drops spaces — so a card's
+// full-width-D katakana name matches Wikidata's half-width JA label (prevents duplicate char pages).
+const jaNorm = (s) => !s ? '' : s.normalize('NFKC').replace(/[・·•‧]/g, '・').replace(/\s+/g, '').trim();
 const sq = (s) => s == null || s === '' ? 'NULL' : "'" + String(s).replace(/'/g, "''") + "'";
 
 // curated alias / persona / spelling map (normalized card-form core -> canonical EN as it appears on the wikis)
@@ -46,7 +49,7 @@ for (const r of wdRows) {
   if (!canonQid.has(canon)) canonQid.set(canon, qid);
   if (r.ja?.value && !canonJa.has(canon)) canonJa.set(canon, r.ja.value);
   for (const f of ['en','enAlt']) if (r[f]?.value) { wdEn.set(norm(r[f].value), canon); wdEn.set(deWano(norm(r[f].value)), canon); }
-  for (const f of ['ja','jaAlt']) if (r[f]?.value) wdJa.set(r[f].value.trim(), canon);
+  for (const f of ['ja','jaAlt']) if (r[f]?.value) wdJa.set(jaNorm(r[f].value), canon);
 }
 
 // raw (original-case) candidate strings for Fandom titles
@@ -76,7 +79,7 @@ const names = [...new Set(charCards.map(c => c.name))];
 // ---------- pass 1: Wikidata ----------
 const resolution = {}; const wdMiss = [];
 for (const n of names) {
-  if (hasJP(n)) { const hit = wdJa.get(n.trim()); if (hit) { resolution[n] = { canonical: hit, source: 'wikidata' }; continue; } }
+  if (hasJP(n)) { const hit = wdJa.get(jaNorm(n)); if (hit) { resolution[n] = { canonical: hit, source: 'wikidata' }; continue; } }
   const hit = normCands(n).map(c => wdEn.get(c)).find(Boolean);
   if (hit) resolution[n] = { canonical: hit, source: 'wikidata' }; else wdMiss.push(n);
 }
@@ -153,7 +156,8 @@ const rpt = [
   `  - wikidata: ${by('wikidata')} | fandom: ${by('fandom')} (combo ${names.filter(n=>resolution[n].source==='fandom-combo').length})`,
   `- bare card-original pages: ${bare.length} (${(100 * bare.length / names.length).toFixed(1)}%) — still get a character page`,
   `- roster (distinct characters incl. combo members): ${roster.length}`,
-  `- card_characters rows: ${ccRows.length} (covers ${new Set(charCards.map(c=>c.id)).size} distinct character/leader cards = 100%; ${dupSkipped} dup pairs deduped)`,
+  `- card_characters rows: ${ccRows.length} (covers ${new Set(charCards.map(c=>c.id)).size} distinct Character+Leader cards = 100% of those; ${dupSkipped} dup pairs deduped)`,
+  `- NOTE: Event/Stage/DON cards intentionally get no character row (not character portraits).`,
   '', '## Bare card-original names (curation candidates)', '```', ...bare.sort(), '```',
 ].join('\n');
 await writeFile(new URL('character-coverage.md', OUT), rpt);
