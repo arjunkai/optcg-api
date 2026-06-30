@@ -143,3 +143,12 @@ CREATE INDEX idx_characters_crew       ON characters(crew_id);
 CREATE INDEX idx_artwork_card          ON artwork(card_id);
 CREATE INDEX idx_artwork_ill           ON artwork(illustrator_id);
 CREATE INDEX idx_artwork_chars_char    ON artwork_characters(character_id);
+
+-- OPCanvs characters enrichment (migration 018) — new bilingual/provenance model.
+-- The 017 crew_id/fruit_*/bounty/job/status columns are unused (were for api-onepiece, now dropped).
+ALTER TABLE characters ADD COLUMN name_ja TEXT;
+ALTER TABLE characters ADD COLUMN source TEXT;
+ALTER TABLE characters ADD COLUMN wikidata_qid TEXT;
+ALTER TABLE characters ADD COLUMN fandom_title TEXT;
+ALTER TABLE characters ADD COLUMN epithet TEXT;
+ALTER TABLE characters ADD COLUMN affiliation TEXT;
