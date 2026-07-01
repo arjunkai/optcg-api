@@ -142,9 +142,11 @@ export function registerCanvsRoutes(app) {
     }
 
     if (q.character) {
+      const charId = Number(q.character);
+      if (!Number.isInteger(charId)) return c.json({ error: 'invalid character id' }, 400);
       joins.push('JOIN card_characters cc ON cc.card_id = c.id');
       where.push('cc.character_id = ?');
-      params.push(Number(q.character));
+      params.push(charId);
     }
 
     const joinClause = joins.join(' ');
