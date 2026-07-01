@@ -27,13 +27,17 @@ const ALLOWED_EXACT = new Set([
   'https://opbindr.com',
   'https://www.opbindr.com',
   'https://opbindr.pages.dev',
+  'https://opcanvs.com',
+  'https://www.opcanvs.com',
   'http://localhost:5173',
   'http://localhost:4173',
 ]);
 
 // Regex for Cloudflare Pages preview deploys: <branch>.opbindr.pages.dev
+// and OPCanvs preview deploys: <branch>.opcanvs.pages.dev
 const ALLOWED_REGEX = [
   /^https:\/\/[a-z0-9-]+\.opbindr\.pages\.dev$/,
+  /^https:\/\/[a-z0-9-]+\.opcanvs\.pages\.dev$/,
 ];
 
 // Path prefixes that bypass the gate entirely. These are the discoverable /
