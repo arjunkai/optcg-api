@@ -119,7 +119,19 @@ export function registerCanvsRoutes(app) {
        ORDER BY c.id`
     ).bind(rawId).all();
 
-    return c.json({ character, cards: parseCards(results) });
+    // Non-card official artwork depicting this character (illustrations, ensemble
+    // pieces), linked via artwork_characters. Same shape as /artwork/gallery so
+    // the frontend can reuse its tiles + lightbox.
+    const { results: artwork } = await c.env.DB.prepare(
+      `SELECT a.id, a.kind, a.title, a.artist, a.source_url
+       FROM artwork a
+       JOIN artwork_characters ac ON ac.artwork_id = a.id
+       WHERE ac.character_id = ? AND a.source_url IS NOT NULL AND a.source_url <> ''
+       ORDER BY CASE a.kind
+         WHEN 'illustration' THEN 0 WHEN 'playmat' THEN 1 WHEN 'promo' THEN 2 WHEN 'anniversary' THEN 3 ELSE 4 END, a.id`
+    ).bind(rawId).all();
+
+    return c.json({ character, cards: parseCards(results), artwork });
   });
 
   // GET /artwork
