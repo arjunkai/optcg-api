@@ -18,10 +18,12 @@
 //     transition fallback; logs a warning when used. Remove once all
 //     active keys are migrated into D1.
 //
-// Rate limiting (X-API-Key callers only — OPBindr's CORS path is unaffected):
+// Rate limiting for X-API-Key callers:
 //   * 300 req/min via the native Workers Rate Limit binding (RL_MINUTE).
 //   * 100k req/day via Cache API counter, lazy-flushed to D1 (api_key_usage)
 //     every 60 requests so the D1 free-tier 100k-write budget holds.
+// Browser (Origin) callers are limited per IP on edge-cache misses instead —
+// see src/edgeCache.js.
 
 const ALLOWED_EXACT = new Set([
   'https://opbindr.com',
@@ -29,6 +31,7 @@ const ALLOWED_EXACT = new Set([
   'https://opbindr.pages.dev',
   'https://opcanvs.com',
   'https://www.opcanvs.com',
+  'https://opcanvs.pages.dev',
   'http://localhost:5173',
   'http://localhost:4173',
 ]);
@@ -71,7 +74,9 @@ function isPublicPath(pathname) {
   return false;
 }
 
-function isAllowedOrigin(origin) {
+// Also drives the CORS middleware in index.js, so the two allowlists can't
+// drift apart.
+export function isAllowedOrigin(origin) {
   if (!origin) return false;
   if (ALLOWED_EXACT.has(origin)) return true;
   for (const r of ALLOWED_REGEX) {
@@ -133,7 +138,18 @@ async function bumpDailyCount(c, prefix) {
   const cacheKey = new Request(`https://rl.local/daily/${encodeURIComponent(prefix)}/${today}`);
   const cache = caches.default;
   const cached = await cache.match(cacheKey);
-  const prev = cached ? parseInt(await cached.text(), 10) || 0 : 0;
+  let prev = cached ? parseInt(await cached.text(), 10) || 0 : 0;
+  // No counter in this colo (first request here today, or the entry was
+  // evicted): seed from the D1 flush so the cap is enforced across colos
+  // instead of silently restarting at 0. One indexed read per colo per day.
+  if (!cached && c.env?.DB) {
+    try {
+      const row = await c.env.DB.prepare(
+        'SELECT count FROM api_key_usage WHERE api_key = ? AND day = ?'
+      ).bind(prefix, today).first();
+      if (row?.count) prev = row.count;
+    } catch { /* best-effort; fall back to the local count */ }
+  }
   const count = prev + 1;
 
   c.executionCtx.waitUntil(cache.put(
@@ -185,9 +201,14 @@ export function gate() {
       return;
     }
 
+    // Origin is only enforced by browsers — any non-browser client can send
+    // an allowed one. So the browser path is treated as untrusted: no key
+    // needed, but it can't use refresh=1 and its cache misses are rate
+    // limited per IP (see src/edgeCache.js).
     const origin = c.req.header('origin');
     if (origin) {
       if (isAllowedOrigin(origin)) {
+        c.set('caller', 'browser');
         await next();
         return;
       }
@@ -246,6 +267,7 @@ export function gate() {
     }
 
     await touchLastUsed(c, hash);
+    c.set('caller', 'key');
     await next();
   };
 }

@@ -1,4 +1,22 @@
 import { parseCard, parseCards } from './db.js';
+import { serveSnapshot } from './snapshot.js';
+
+// Numeric filter value, or null when absent/non-numeric. `?min_power=abc`
+// used to bind NaN and fail the whole query; now the filter is just skipped.
+export function numParam(raw) {
+  if (raw === undefined || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+// totalCount for a paginated list. When page 1 came back short, the page IS
+// the whole result, so the COUNT(*) query (often a full scan on searches) is
+// skipped. Otherwise runs countSql, which must select one column `total`.
+export async function countTotal(db, page, pageSize, pageRows, countSql, params) {
+  if (page === 1 && pageRows < pageSize) return pageRows;
+  const row = await db.prepare(countSql).bind(...params).first();
+  return row.total;
+}
 
 // OPTCG supported languages. 'en' is the default for every endpoint so
 // existing (no ?lang) callers are unchanged. Unknown values fall back to en.
@@ -11,53 +29,22 @@ export function registerCardRoutes(app) {
   // Single-shot "every card" endpoint. Exists so the OPBindr client can
   // warm its registry with ONE request instead of 6 paginated ones.
   //
-  // Workers responses aren't auto-cached by the edge just because of a
-  // Cache-Control header — that only controls downstream (browser)
-  // caching. To get edge caching we have to explicitly use the Workers
-  // Cache API (`caches.default`). First hit runs the D1 query and puts
-  // the response in the edge cache; subsequent hits anywhere served by
-  // that edge node return in ~50 ms with no D1 query.
+  // Served from an R2 snapshot shared by every colo, fronted by the edge
+  // cache (see snapshot.js), so the full-table D1 read runs a few times a
+  // day at most instead of once per colo per hour.
   //
   // MUST be registered BEFORE /cards/:card_id or Hono will route 'all'
   // into that param and return a 404 for a non-existent card with
   // id 'ALL'.
-  app.get('/cards/all', async (c) => {
-    const cache = caches.default;
-    // Keep the cache key normalized to the bare URL so ?refresh=1 purges
-    // the SAME entry the cached hit would use.
-    const baseUrl = new URL(c.req.url);
-    const refresh = baseUrl.searchParams.get('refresh') === '1';
-    baseUrl.searchParams.delete('refresh');
-    const cacheKey = new Request(baseUrl.toString(), { method: 'GET' });
-
-    if (refresh) {
-      await cache.delete(cacheKey);
-    } else {
-      const hit = await cache.match(cacheKey);
-      if (hit) return hit;
-    }
-
+  app.get('/cards/all', (c) => serveSnapshot(c, 'cards-all-v1', async () => {
     // EN-only by design. This is the legacy single-shot fallback the client
     // uses only when /cards/index 404s (older deployments). The language-aware
     // path is /cards/index (both names inline) + /cards/:id?lang= for details.
     const { results } = await c.env.DB.prepare(
       'SELECT * FROM cards ORDER BY id ASC'
     ).all();
-
-    const response = new Response(JSON.stringify({
-      count: results.length,
-      data: parseCards(results),
-    }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
-      },
-    });
-
-    c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()));
-    return response;
-  });
+    return { count: results.length, data: parseCards(results) };
+  }));
 
   // Slim index. Same shape spirit as /cards/all but drops the heavy
   // fields (effect text, trigger text, image_url, tcg_ids, sets
@@ -69,24 +56,10 @@ export function registerCardRoutes(app) {
   // for now so the JSON shape doesn't have to change when the column
   // gets populated.
   //
-  // Same edge-caching strategy as /cards/all: explicit Cache API put
-  // so subsequent edge-served hits skip D1 entirely.
+  // Same R2 snapshot + edge cache strategy as /cards/all.
   //
   // MUST be registered BEFORE /cards/:card_id (same reason as /cards/all).
-  app.get('/cards/index', async (c) => {
-    const cache = caches.default;
-    const baseUrl = new URL(c.req.url);
-    const refresh = baseUrl.searchParams.get('refresh') === '1';
-    baseUrl.searchParams.delete('refresh');
-    const cacheKey = new Request(baseUrl.toString(), { method: 'GET' });
-
-    if (refresh) {
-      await cache.delete(cacheKey);
-    } else {
-      const hit = await cache.match(cacheKey);
-      if (hit) return hit;
-    }
-
+  app.get('/cards/index', (c) => serveSnapshot(c, 'cards-index-v1', async () => {
     // Both names inline + per-language availability, so the OPBindr client
     // holds ONE row per card (not a row per language). This is the OPTCG
     // language model: One Piece is one catalog with translated display, so
@@ -144,20 +117,8 @@ export function registerCardRoutes(app) {
       };
     });
 
-    const response = new Response(JSON.stringify({
-      count: slim.length,
-      data: slim,
-    }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
-      },
-    });
-
-    c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()));
-    return response;
-  });
+    return { count: slim.length, data: slim };
+  }));
 
   // Price history for a single card. Range caps the window in seconds so we
   // don't return the entire history by default. Rows come from the
@@ -252,7 +213,10 @@ export function registerCardRoutes(app) {
     const params = [];
 
     if (q.set_id) {
-      conditions.push('EXISTS (SELECT 1 FROM card_sets cs WHERE cs.card_id = c.id AND cs.set_id = ?)');
+      // IN (not a correlated EXISTS) so SQLite drives from idx_card_sets_set_id
+      // instead of scanning every card: ~450 D1 rows read per call vs ~4,500.
+      // OPCanvs fires one of these per set tile, so this dominated reads.
+      conditions.push('c.id IN (SELECT cs.card_id FROM card_sets cs WHERE cs.set_id = ?)');
       params.push(q.set_id.toUpperCase());
     }
 
@@ -294,34 +258,17 @@ export function registerCardRoutes(app) {
       params.push(q.finish);
     }
 
-    if (q.min_power) {
-      conditions.push('c.power >= ?');
-      params.push(Number(q.min_power));
-    }
-
-    if (q.max_power) {
-      conditions.push('c.power <= ?');
-      params.push(Number(q.max_power));
-    }
-
-    if (q.min_cost) {
-      conditions.push('c.cost >= ?');
-      params.push(Number(q.min_cost));
-    }
-
-    if (q.max_cost) {
-      conditions.push('c.cost <= ?');
-      params.push(Number(q.max_cost));
-    }
-
-    if (q.min_price) {
-      conditions.push('c.price >= ?');
-      params.push(Number(q.min_price));
-    }
-
-    if (q.max_price) {
-      conditions.push('c.price <= ?');
-      params.push(Number(q.max_price));
+    const RANGE_FILTERS = [
+      ['min_power', 'c.power >= ?'], ['max_power', 'c.power <= ?'],
+      ['min_cost', 'c.cost >= ?'], ['max_cost', 'c.cost <= ?'],
+      ['min_price', 'c.price >= ?'], ['max_price', 'c.price <= ?'],
+    ];
+    for (const [key, clause] of RANGE_FILTERS) {
+      const n = numParam(q[key]);
+      if (n !== null) {
+        conditions.push(clause);
+        params.push(n);
+      }
     }
 
     const sortMap = {
@@ -333,7 +280,10 @@ export function registerCardRoutes(app) {
     };
     const sortCol = sortMap[q.sort] || 'c.id';
     const sortDir = q.order?.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
-    const nullsOrder = sortCol === 'c.id' ? '' : ` NULLS ${sortDir === 'DESC' ? 'FIRST' : 'LAST'}`;
+    // NULLS LAST for both directions: unpriced cards must never lead a
+    // price/power/cost ranking (a DESC price sort should return the most
+    // expensive card first, not the NULL-priced ones).
+    const nullsOrder = sortCol === 'c.id' ? '' : ' NULLS LAST';
     const orderBy = `ORDER BY ${sortCol} ${sortDir}${nullsOrder}, c.id ASC`;
 
     const page = Math.max(1, Number(q.page) || 1);
@@ -342,17 +292,16 @@ export function registerCardRoutes(app) {
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
 
-    const countRow = await c.env.DB.prepare(
-      `SELECT COUNT(*) AS total FROM cards c ${where}`
-    ).bind(...params).first();
-
     const { results } = await c.env.DB.prepare(
       `SELECT c.* FROM cards c ${where} ${orderBy} LIMIT ? OFFSET ?`
     ).bind(...params, pageSize, offset).all();
 
+    const totalCount = await countTotal(c.env.DB, page, pageSize, results.length,
+      `SELECT COUNT(*) AS total FROM cards c ${where}`, params);
+
     return c.json({
       count: results.length,
-      totalCount: countRow.total,
+      totalCount,
       page,
       pageSize,
       data: parseCards(results),

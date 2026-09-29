@@ -14,6 +14,7 @@
 // hits /pokemon/cards/:id for the heavy fields (effect/abilities/attacks).
 
 import { PRICECHARTING_CONFLATIONS } from '../pricechartingConflations.js';
+import { serveSnapshot } from '../snapshot.js';
 
 const VALID_LANGS = new Set(['en', 'ja', 'zh-cn', 'zh-tw']);
 
@@ -159,14 +160,9 @@ export function registerPokemonCardRoutes(app) {
     const lang = (c.req.query('lang') || 'en').toLowerCase();
     if (!VALID_LANGS.has(lang)) return jsonResponse({ error: 'invalid lang' }, 400);
 
-    const cache = caches.default;
-    const baseUrl = new URL(c.req.url);
-    const refresh = baseUrl.searchParams.get('refresh') === '1';
-    baseUrl.searchParams.delete('refresh');
     // Cache version — bump whenever the slim response shape changes so
-    // pre-deploy cached payloads get effectively invalidated. The Cache
-    // API keys on full URL, so a different _v query param creates a
-    // distinct entry and the old one ages out naturally.
+    // pre-deploy cached payloads get effectively invalidated. It's part of
+    // the snapshot name, so a bump also starts a fresh R2 snapshot.
     //   v2 (2026-05-07): JA queries now JOIN to EN for name_en alias
     //   v3 (2026-05-31): withSlimPricing now carries yuyutei/hareruya/ebay/
     //     + all tcgplayer variant keys (was dropping ~6.3k JA prices)
@@ -178,71 +174,67 @@ export function registerPokemonCardRoutes(app) {
     //     vintage/secret-rare retail, 55 rows) — JP retail chain
     //   v8 (2026-06-02): dropped image_low from slim payload (-12.6%, ~1.45 MB
     //     of the JA index) — redundant series fallback, image_high suffices
-    baseUrl.searchParams.set('_v', '8');
-    const cacheKey = new Request(baseUrl.toString(), { method: 'GET' });
-    if (refresh) await cache.delete(cacheKey);
-    else {
-      const hit = await cache.match(cacheKey);
-      if (hit) return hit;
-    }
+    return serveSnapshot(c, `pokemon-index-${lang}-v8`, async () => {
+      // For JA queries, LEFT JOIN to the EN row with the same card_id so
+      // every card whose English counterpart exists in D1 gets a name_en
+      // alias for free — no backfill bookkeeping needed. COALESCE prefers
+      // the explicit ptcg_cards.name_en column when set (manual override
+      // or enrich_ja_card_names.py output for JA-only cards), falls back
+      // to the JOINed EN name otherwise. Other langs skip the JOIN since
+      // EN's `name` is already the EN alias for them when needed.
+      const sql = lang === 'ja'
+        ? `
+          SELECT ja.card_id AS card_id, ja.lang AS lang, ja.set_id AS set_id,
+                 ja.local_id AS local_id, ja.name AS name,
+                 COALESCE(ja.name_en, en.name) AS name_en,
+                 ja.category AS category, ja.rarity AS rarity,
+                 ja.hp AS hp, ja.retreat AS retreat, ja.types_csv AS types_csv,
+                 ja.stage AS stage, ja.variants_json AS variants_json,
+                 ja.image_high AS image_high, ja.image_low AS image_low,
+                 ja.pricing_json AS pricing_json, ja.price_source AS price_source,
+                 ja.dominant_color AS dominant_color
+          FROM ptcg_cards ja
+          LEFT JOIN ptcg_cards en ON en.card_id = ja.card_id AND en.lang = 'en'
+          WHERE ja.lang = 'ja'
+          ORDER BY ja.set_id, ja.local_id
+        `
+        : `
+          SELECT card_id, lang, set_id, local_id, name, name_en, category, rarity,
+                 hp, retreat, types_csv, stage, variants_json,
+                 image_high, image_low, pricing_json, price_source, dominant_color
+          FROM ptcg_cards
+          WHERE lang = ?
+          ORDER BY set_id, local_id
+        `;
 
-    // For JA queries, LEFT JOIN to the EN row with the same card_id so
-    // every card whose English counterpart exists in D1 gets a name_en
-    // alias for free — no backfill bookkeeping needed. COALESCE prefers
-    // the explicit ptcg_cards.name_en column when set (manual override
-    // or enrich_ja_card_names.py output for JA-only cards), falls back
-    // to the JOINed EN name otherwise. Other langs skip the JOIN since
-    // EN's `name` is already the EN alias for them when needed.
-    const sql = lang === 'ja'
-      ? `
-        SELECT ja.card_id AS card_id, ja.lang AS lang, ja.set_id AS set_id,
-               ja.local_id AS local_id, ja.name AS name,
-               COALESCE(ja.name_en, en.name) AS name_en,
-               ja.category AS category, ja.rarity AS rarity,
-               ja.hp AS hp, ja.retreat AS retreat, ja.types_csv AS types_csv,
-               ja.stage AS stage, ja.variants_json AS variants_json,
-               ja.image_high AS image_high, ja.image_low AS image_low,
-               ja.pricing_json AS pricing_json, ja.price_source AS price_source,
-               ja.dominant_color AS dominant_color
-        FROM ptcg_cards ja
-        LEFT JOIN ptcg_cards en ON en.card_id = ja.card_id AND en.lang = 'en'
-        WHERE ja.lang = 'ja'
-        ORDER BY ja.set_id, ja.local_id
-      `
-      : `
-        SELECT card_id, lang, set_id, local_id, name, name_en, category, rarity,
-               hp, retreat, types_csv, stage, variants_json,
-               image_high, image_low, pricing_json, price_source, dominant_color
-        FROM ptcg_cards
-        WHERE lang = ?
-        ORDER BY set_id, local_id
-      `;
+      const stmt = lang === 'ja' ? c.env.DB.prepare(sql) : c.env.DB.prepare(sql).bind(lang);
+      const { results } = await stmt.all();
 
-    const stmt = lang === 'ja' ? c.env.DB.prepare(sql) : c.env.DB.prepare(sql).bind(lang);
-    const { results } = await stmt.all();
-
-    const data = (results || []).map((row) => withSlimPricing(rowToSlim(row)));
-    const response = jsonResponse({ count: data.length, data });
-    c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()));
-    return response;
+      const data = (results || []).map((row) => withSlimPricing(rowToSlim(row)));
+      return { count: data.length, data };
+    });
   });
 
   // Legacy full-shape list. Useful for debugging the import; the
-  // frontend uses /pokemon/cards/index in the normal path.
+  // frontend uses /pokemon/cards/index in the normal path (and this only
+  // as a fallback when that fails). Was uncached — a full SELECT * with raw
+  // JSON on every call — now shares the R2 snapshot path.
   // MUST be registered BEFORE /pokemon/cards/:id so Hono doesn't match
   // "all" as a :card_id.
   app.get('/pokemon/cards/all', async (c) => {
     const lang = (c.req.query('lang') || 'en').toLowerCase();
     if (!VALID_LANGS.has(lang)) return jsonResponse({ error: 'invalid lang' }, 400);
-    const { results } = await c.env.DB.prepare(`
-      SELECT * FROM ptcg_cards WHERE lang = ? ORDER BY set_id, local_id
-    `).bind(lang).all();
-    const data = (results || []).map(row => {
-      const slim = rowToSlim(row);
-      const raw = row.raw ? JSON.parse(row.raw) : {};
-      return { ...slim, ...raw };
+    return serveSnapshot(c, `pokemon-all-${lang}-v1`, async () => {
+      const { results } = await c.env.DB.prepare(`
+        SELECT * FROM ptcg_cards WHERE lang = ? ORDER BY set_id, local_id
+      `).bind(lang).all();
+      const data = (results || []).map(row => {
+        const slim = rowToSlim(row);
+        const raw = row.raw ? JSON.parse(row.raw) : {};
+        return { ...slim, ...raw };
+      });
+      return { count: data.length, data };
     });
-    return jsonResponse({ count: data.length, data });
   });
 
   // Price history for one card. Returns the time series captured by

@@ -60,7 +60,27 @@ async function proxyAndCache(url, requestHeaders = {}) {
   }
 
   if (!upstream) return null;
+  // A 200 that isn't an image (an HTML soft-404, an error page) must not be
+  // relabelled image/png and persisted to R2 forever.
+  if (!(upstream.headers.get('content-type') || '').startsWith('image/')) return null;
   return new Response(upstream.body, { headers: IMG_HEADERS });
+}
+
+// Card and set ids are [A-Za-z0-9_-] (OP01-001, OP05-119_p8, P-001_jp1,
+// DON-208, OP14-EB04, 550302). Anything else — slashes from a decoded %2F,
+// dots, '?' — would be spliced into the upstream Bandai URL and the R2 key,
+// so reject it before any fetch or write.
+const SAFE_ID = /^[A-Za-z0-9_-]{1,40}$/;
+
+// Fetch image bytes via proxyAndCache and reject empty bodies. Bandai (or wsrv
+// on its behalf) can hand back a 200 with a 0-byte body when an id is absent on
+// that host; caching that empty "success" used to poison R2/edge with a broken
+// image. Returns an ArrayBuffer with real bytes, or null.
+async function fetchImageBytes(url, referer) {
+  const res = await proxyAndCache(url, referer ? { Referer: referer } : {});
+  if (!res) return null;
+  const buf = await res.arrayBuffer();
+  return buf && buf.byteLength > 0 ? buf : null;
 }
 
 // Proactively warm a regular OPTCG card image into R2 (used by the cron sweep
@@ -88,6 +108,7 @@ export async function warmCardImage(env, cardId) {
 export function registerImageRoutes(app) {
   app.get('/images/:card_id', async (c) => {
     const cardId = c.req.param('card_id');
+    if (!SAFE_ID.test(cardId)) return c.body(null, 404);
     // Japanese art lives under a separate R2 prefix (cards/ja/:id) and comes
     // from the JA official host. DON!! images are language-neutral synthetic
     // scans, so they ignore ?lang and always use the EN path.
@@ -95,9 +116,12 @@ export function registerImageRoutes(app) {
     const r2Key = lang === 'ja' ? `cards/ja/${cardId}.png` : `cards/${cardId}.png`;
 
     // 1. R2 first (high-res curated images, including DON PDFs). Lang-keyed.
+    //    Guard against 0-byte objects left by an earlier failed warm — an empty
+    //    R2 hit used to serve a 200/0-byte "success" and mask the real image
+    //    (this is what made JA-exclusive ids like ST05-015_r1 render blank).
     if (c.env.IMAGES) {
       const r2Object = await c.env.IMAGES.get(r2Key);
-      if (r2Object) {
+      if (r2Object && r2Object.size > 0) {
         return new Response(r2Object.body, { headers: IMG_HEADERS });
       }
     }
@@ -123,7 +147,7 @@ export function registerImageRoutes(app) {
       // JA art unavailable → serve the EN R2 object if we already have it.
       if (c.env.IMAGES) {
         const enObj = await c.env.IMAGES.get(`cards/${cardId}.png`);
-        if (enObj) return new Response(enObj.body, { headers: IMG_HEADERS });
+        if (enObj && enObj.size > 0) return new Response(enObj.body, { headers: IMG_HEADERS });
       }
       // else fall through to the EN upstream block below.
     }
@@ -147,23 +171,65 @@ export function registerImageRoutes(app) {
       return c.body(null, 404);
     }
 
-    // 3. Regular cards proxy from official site, then PERSIST to R2 so we
+    // 3. Regular cards proxy from the official site, then PERSIST to R2 so we
     //    only ever fetch each card from Bandai once. R2 is checked first
     //    (step 1 above), so once a card is stored it never touches Bandai
     //    again — this is what prevents the recurring hot-link IP block:
     //    repeat traffic to Bandai drops to ~zero after the first fetch.
     //    Falls back to the ephemeral edge cache only if R2 is unbound.
-    const url = `https://en.onepiece-cardgame.com/images/cardlist/card/${cardId}.png`;
-    const res = await proxyAndCache(url, { Referer: 'https://en.onepiece-cardgame.com/' });
-    if (res) {
-      const buf = await res.arrayBuffer();
+    //
+    //    Try the EN host first; JA-exclusive variants (_pN/_rN alt-art) 404 on
+    //    the EN host but exist on the JA host, so fall back to it before giving
+    //    up. Whichever wins is cached under the language-neutral EN key — it IS
+    //    the canonical art for that id — so the default (no-lang) path serves it
+    //    forever after. This is what fixes JA-only cards (and the OPCanvs
+    //    character-page placeholders) without the caller needing ?lang=ja.
+    const enUrl = `https://en.onepiece-cardgame.com/images/cardlist/card/${cardId}.png`;
+    const jaUrl = `https://www.onepiece-cardgame.com/images/cardlist/card/${cardId}.png`;
+    const buf =
+      (await fetchImageBytes(enUrl, 'https://en.onepiece-cardgame.com/')) ||
+      (await fetchImageBytes(jaUrl, 'https://www.onepiece-cardgame.com/'));
+    if (buf) {
       c.executionCtx.waitUntil(
         c.env.IMAGES
           ? c.env.IMAGES.put(`cards/${cardId}.png`, buf, { httpMetadata: { contentType: 'image/png' } })
-          : caches.default.put(new Request(url), new Response(buf, { headers: IMG_HEADERS })),
+          : caches.default.put(new Request(enUrl), new Response(buf, { headers: IMG_HEADERS })),
       );
       return new Response(buf, { headers: IMG_HEADERS });
     }
     return c.body(null, 404);
+  });
+
+  // GET /images/set/:set_id?kind=box|logo
+  // Set banner art for OPCanvs. Source URLs (Bandai product pages) are stored on
+  // sets.box_url / sets.logo_url; we proxy out-of-band through wsrv (Bandai
+  // IP-blocks the Worker) and persist to R2 under sets/{kind}/{set_id}.png so
+  // each set is only fetched from Bandai once. Same tiered pattern as card art.
+  app.get('/images/set/:set_id', async (c) => {
+    const setId = c.req.param('set_id');
+    if (!SAFE_ID.test(setId)) return c.body(null, 404);
+    const kind = c.req.query('kind') === 'logo' ? 'logo' : 'box';
+    const r2Key = `sets/${kind}/${setId}.png`;
+
+    if (c.env.IMAGES) {
+      const obj = await c.env.IMAGES.get(r2Key);
+      if (obj && obj.size > 0) return new Response(obj.body, { headers: IMG_HEADERS });
+    }
+
+    // kind is constrained to 'box'|'logo' above, so the column name is safe.
+    const row = await c.env.DB
+      .prepare(`SELECT ${kind}_url AS url FROM sets WHERE id = ?`)
+      .bind(setId)
+      .first();
+    if (!row || !row.url) return c.body(null, 404);
+
+    const buf = await fetchImageBytes(row.url, 'https://en.onepiece-cardgame.com/');
+    if (!buf) return c.body(null, 404);
+    c.executionCtx.waitUntil(
+      c.env.IMAGES
+        ? c.env.IMAGES.put(r2Key, buf, { httpMetadata: { contentType: 'image/png' } })
+        : caches.default.put(new Request(row.url), new Response(buf, { headers: IMG_HEADERS })),
+    );
+    return new Response(buf, { headers: IMG_HEADERS });
   });
 }
