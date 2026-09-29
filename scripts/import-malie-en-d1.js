@@ -104,7 +104,7 @@ for (const malieId of malieSetsToProcess) {
 
     for (const candidate of candidates) {
       stmts.push(
-        `UPDATE ptcg_cards SET image_high = COALESCE(image_high, ${escSql(imageUrl)}), image_low = COALESCE(image_low, ${escSql(imageUrl)}) WHERE card_id = ${escSql(candidate)} AND lang = 'en';`,
+        `UPDATE ptcg_cards SET image_high = COALESCE(image_high, ${escSql(imageUrl)}), image_low = COALESCE(image_low, ${escSql(imageUrl)}) WHERE card_id = ${escSql(candidate)} AND lang = 'en' AND (image_high IS NULL OR image_low IS NULL);`,
       );
     }
   }

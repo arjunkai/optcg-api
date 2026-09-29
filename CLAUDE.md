@@ -33,7 +33,7 @@ Live: `https://optcg-api.arjunbansal-ai.workers.dev`  ·  Docs: `/docs`  ·  Ope
 - `scripts/import-d1.js` / `import-prices-d1.js` / `import-don-d1.js` — batched D1 writes
 - `scripts/import-jp-exclusives.js` — seeds JP-exclusive Championship variants from `data/jp_exclusives.json` into `cards` + `card_sets`, inheriting stats from the base row
 - `scripts/price_jp_exclusives.py` — eBay Browse API pricing for the JP exclusives, uses each entry's `note` or `image_search_query` as the search and stamps `price_source='ebay_jp'`
-- `scripts/fetch_card_image.py` — eBay-sourced card images for cards Bandai doesn't publish cleanly (JP exclusives, DON cards). Adaptive card-bounds detection, aspect-aware scoring (`card_area × sharpness × card_fill × aspect_bonus`), blocklist of slabbed/sealed listings, and a `--min-card-px` floor so it never downgrades an existing image. Uploads to R2 at `optcg-images/cards/{id}.png` then calls `/cards/all?refresh=1` to purge the edge cache. Flags: `--all` (all JP exclusives), `--all-dons` (all DON rows from D1), `<card_id>` (single card with D1 fallback), `--dry-run`, `--force`.
+- `scripts/fetch_card_image.py` — eBay-sourced card images for cards Bandai doesn't publish cleanly (JP exclusives, DON cards). Adaptive card-bounds detection, aspect-aware scoring (`card_area × sharpness × card_fill × aspect_bonus`), blocklist of slabbed/sealed listings, and a `--min-card-px` floor so it never downgrades an existing image. Uploads to R2 at `optcg-images/cards/{id}.png` then calls `/cards/all?refresh=1` to purge the edge cache (needs `OPTCG_API_KEY` in the env). Flags: `--all` (all JP exclusives), `--all-dons` (all DON rows from D1), `<card_id>` (single card with D1 fallback), `--dry-run`, `--force`.
 - `.github/workflows/scrape.yml` — weekly auto-refresh of everything
 - `scripts/ptcg-fetch.js` / `scripts/ptcg-import-d1.js` — Pokémon TCG bulk import. Fetch caches TCGdex API responses to `data/ptcg_cache/{sets,cards}-{lang}.json`; import generates batched SQL in `scripts/ptcg_batches/` and runs them via `wrangler d1 execute --remote`. Resumable (re-running fetch only fills missing cards). See "Pokémon TCG import" below.
 
@@ -341,15 +341,40 @@ npx wrangler d1 execute optcg-cards --remote --command \
    FROM ptcg_cards WHERE lang='en' GROUP BY host"
 ```
 
-After every refresh, also bust the Worker edge cache:
+After every refresh, also bust the Worker caches. `refresh=1` only works
+with an `X-API-Key` (issue yourself one with `npm run key:issue`); with just
+an Origin header it is ignored, because Origin is forgeable and a refresh
+loop would force full-table D1 reads. It purges that colo's edge entry and
+rebuilds the R2 snapshot (`snapshots/*.json`, see `src/snapshot.js`) that
+every colo shares:
 
 ```bash
 for lang in en ja zh-cn zh-tw; do
   curl -s -o /dev/null -w "$lang: %{http_code}\n" \
-    -H "Origin: http://localhost:5173" \
+    -H "X-API-Key: $OPTCG_API_KEY" \
     "https://optcg-api.arjunbansal-ai.workers.dev/pokemon/cards/index?lang=$lang&refresh=1"
 done
 ```
+
+Snapshots also expire on their own after 6h, and both weekly workflows
+delete them (`scripts/purge-snapshots.mjs`) after importing.
+
+## D1 free-tier budget
+
+The account is on the D1 free tier: **5M rows read and 100k rows written per
+day** (UTC). Exceeding either makes queries fail until 00:00 UTC, which takes
+the whole API down (every data route 500s). Rules that keep us under it:
+
+- Imports must skip no-op writes. A no-op `UPDATE`/UPSERT still counts as a
+  row written (plus one per index on a written column). Use
+  `ON CONFLICT ... DO UPDATE SET ... WHERE col IS NOT excluded.col OR ...`,
+  or `AND col IS NULL` guards for COALESCE gap-fills.
+- Reads: every gated GET is edge-cached (`src/edgeCache.js`); the bulk index
+  routes go through R2 snapshots (`src/snapshot.js`). New list routes should
+  use `countTotal()` and avoid correlated `EXISTS` over `cards` (use
+  `c.id IN (SELECT ...)` so an index drives the query).
+- `rows_read` / `rows_written` show in `wrangler d1 execute --json` output
+  and in the CI logs; check them when adding a step.
 
 ### Coverage today (2026-04-30)
 

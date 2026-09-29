@@ -45,17 +45,27 @@ if (existsSync(overridePath)) {
 // ── Generate SQL ───────────────────────────────────────────────────────────
 const lines = [];
 
+// `DO UPDATE SET a=excluded.a, ...` that only fires when a value actually
+// changed. Re-importing an unchanged catalog used to rewrite every row
+// (~19k D1 rows written per weekly run against a 100k/day cap).
+function updateChanged(cols) {
+  const set = cols.map(c => `${c}=excluded.${c}`).join(', ');
+  const changed = cols.map(c => `${c} IS NOT excluded.${c}`).join(' OR ');
+  return `DO UPDATE SET ${set} WHERE ${changed}`;
+}
+
 // Sets
 for (const s of sets) {
   lines.push(
-    `INSERT INTO sets (id, pack_id, label, card_count) VALUES (${escSql(s.set_id)}, ${escSql(s.pack_id)}, ${escSql(s.label)}, ${escSql(s.count)}) ON CONFLICT(id) DO UPDATE SET pack_id=excluded.pack_id, label=excluded.label, card_count=excluded.card_count;`
+    `INSERT INTO sets (id, pack_id, label, card_count) VALUES (${escSql(s.set_id)}, ${escSql(s.pack_id)}, ${escSql(s.label)}, ${escSql(s.count)}) ON CONFLICT(id) ${updateChanged(['pack_id', 'label', 'card_count'])};`
   );
 }
 
 // Cards
+const CARD_UPDATE_COLS = ['name', 'variant_type', 'rarity', 'category', 'image_url', 'colors', 'cost', 'power', 'counter', 'attributes', 'types', 'effect', 'trigger_text'];
 for (const c of cards) {
   lines.push(
-    `INSERT INTO cards (id, base_id, parallel, variant_type, name, rarity, category, image_url, colors, cost, power, counter, attributes, types, effect, trigger_text) VALUES (${escSql(c.id)}, ${escSql(c.base_id)}, ${c.parallel ? 1 : 0}, ${escSql(c.variant_type)}, ${escSql(c.name)}, ${escSql(c.rarity)}, ${escSql(c.category)}, ${escSql(c.image_url)}, ${jsonOrNull(c.colors)}, ${escSql(c.cost)}, ${escSql(c.power)}, ${escSql(c.counter)}, ${jsonOrNull(c.attributes)}, ${jsonOrNull(c.types)}, ${escSql(c.effect)}, ${escSql(c.trigger)}) ON CONFLICT(id) DO UPDATE SET name=excluded.name, variant_type=excluded.variant_type, rarity=excluded.rarity, category=excluded.category, image_url=excluded.image_url, colors=excluded.colors, cost=excluded.cost, power=excluded.power, counter=excluded.counter, attributes=excluded.attributes, types=excluded.types, effect=excluded.effect, trigger_text=excluded.trigger_text;`
+    `INSERT INTO cards (id, base_id, parallel, variant_type, name, rarity, category, image_url, colors, cost, power, counter, attributes, types, effect, trigger_text) VALUES (${escSql(c.id)}, ${escSql(c.base_id)}, ${c.parallel ? 1 : 0}, ${escSql(c.variant_type)}, ${escSql(c.name)}, ${escSql(c.rarity)}, ${escSql(c.category)}, ${escSql(c.image_url)}, ${jsonOrNull(c.colors)}, ${escSql(c.cost)}, ${escSql(c.power)}, ${escSql(c.counter)}, ${jsonOrNull(c.attributes)}, ${jsonOrNull(c.types)}, ${escSql(c.effect)}, ${escSql(c.trigger)}) ON CONFLICT(id) ${updateChanged(CARD_UPDATE_COLS)};`
   );
 }
 

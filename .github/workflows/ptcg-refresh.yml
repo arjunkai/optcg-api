@@ -436,6 +436,16 @@ jobs:
           echo "## PTCG coverage" >> "$GITHUB_STEP_SUMMARY"
           echo "EN priced: $EN | JA priced: $JA" >> "$GITHUB_STEP_SUMMARY"
 
+      # Drop the Worker's R2 snapshots of the bulk index routes so the new
+      # data serves right away (src/snapshot.js; they'd otherwise wait out a
+      # 6h TTL). The zone purge below is a no-op on workers.dev.
+      - name: Purge Worker R2 snapshots
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/purge-snapshots.mjs
+
       # Purge Cloudflare edge cache for /cards/index and /pokemon/cards/*
       # responses so the fresh D1 data is visible to users immediately
       # instead of waiting 1h fresh + 24h stale-while-revalidate to roll

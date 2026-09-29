@@ -71,9 +71,10 @@ async function fetchCardList() {
   const cards = [];
   let page = 1;
   while (true) {
-    const res = await fetch(`${base}/cards?page=${page}&page_size=${pageSize}`, {
-      headers: { 'User-Agent': UA },
-    });
+    // /cards is key-gated in production (OPTCG_API_KEY, `npm run key:issue`).
+    const headers = { 'User-Agent': UA };
+    if (process.env.OPTCG_API_KEY) headers['X-API-Key'] = process.env.OPTCG_API_KEY;
+    const res = await fetch(`${base}/cards?page=${page}&page_size=${pageSize}`, { headers });
     if (!res.ok) throw new Error(`card list page ${page}: HTTP ${res.status}`);
     const json = await res.json();
     for (const c of json.data) {
