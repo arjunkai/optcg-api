@@ -101,7 +101,7 @@ for (const tcgdexId of tcgdexSets) {
     const lowFallback = small || large;
     for (const candidate of candidates) {
       stmts.push(
-        `UPDATE ptcg_cards SET image_high = COALESCE(image_high, ${escSql(large)}), image_low = COALESCE(image_low, ${escSql(lowFallback)}) WHERE card_id = ${escSql(candidate)} AND lang = 'ja';`,
+        `UPDATE ptcg_cards SET image_high = COALESCE(image_high, ${escSql(large)}), image_low = COALESCE(image_low, ${escSql(lowFallback)}) WHERE card_id = ${escSql(candidate)} AND lang = 'ja' AND (image_high IS NULL OR image_low IS NULL);`,
       );
     }
   }

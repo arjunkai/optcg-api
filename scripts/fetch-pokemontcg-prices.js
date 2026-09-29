@@ -106,14 +106,16 @@ for (const pkmId of pokemontcgSets) {
     if (Object.keys(patch).length === 0) continue;
     const patchSql = JSON.stringify(patch).replace(/'/g, "''");
 
-    const updates = [
-      `pricing_json = json_patch(COALESCE(pricing_json, '{}'), '${patchSql}')`,
-      `price_source = CASE WHEN price_source = 'manual' THEN 'manual' ELSE 'pokemontcg' END`,
-    ];
+    const newPricing = `json_patch(COALESCE(pricing_json, '{}'), '${patchSql}')`;
+    const newSource = `CASE WHEN price_source = 'manual' THEN 'manual' ELSE 'pokemontcg' END`;
+    const updates = [`pricing_json = ${newPricing}`, `price_source = ${newSource}`];
+    // Skip rows whose prices didn't move since last week — a no-op UPDATE
+    // still counts as a D1 row written.
+    const changed = `(pricing_json IS NOT ${newPricing} OR price_source IS NOT ${newSource})`;
 
     for (const candidate of candidates) {
       stmts.push(
-        `UPDATE ptcg_cards SET ${updates.join(', ')} WHERE card_id = ${escSql(candidate)} AND lang = 'en';`,
+        `UPDATE ptcg_cards SET ${updates.join(', ')} WHERE card_id = ${escSql(candidate)} AND lang = 'en' AND ${changed};`,
       );
     }
   }

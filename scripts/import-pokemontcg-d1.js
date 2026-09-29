@@ -84,17 +84,22 @@ for (const tcgdexId of tcgdexSetsToProcess) {
     ]);
 
     const updates = [];
+    const fillable = [];
     if (c.images?.large) {
       updates.push(`image_high = COALESCE(image_high, ${escSql(c.images.large)})`);
+      fillable.push('image_high IS NULL');
     }
     if (c.images?.small) {
       updates.push(`image_low  = COALESCE(image_low,  ${escSql(c.images.small)})`);
+      fillable.push('image_low IS NULL');
     }
     if (updates.length === 0) continue;
 
+    // Only touch rows with a gap to fill. COALESCE already made filled rows
+    // a no-op, but D1 still counted each one as a row written (~20k/run).
     for (const candidate of candidates) {
       stmts.push(
-        `UPDATE ptcg_cards SET ${updates.join(', ')} WHERE card_id = ${escSql(candidate)} AND lang = 'en';`,
+        `UPDATE ptcg_cards SET ${updates.join(', ')} WHERE card_id = ${escSql(candidate)} AND lang = 'en' AND (${fillable.join(' OR ')});`,
       );
     }
   }
