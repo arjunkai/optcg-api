@@ -33,3 +33,13 @@ graphify-out/
 
 # JA pricing probe fixtures (2026-05-31 source sweep) — safe to delete after follow-up
 scratch_ja_probe/
+
+# Local tool output
+.firecrawl/
+.superpowers/
+
+# OPCanvs pipeline intermediates (regenerable; the SQL batches + coverage
+# reports are what's committed)
+scripts/opcanvs/*.json
+scripts/opcanvs/*.log
+scripts/opcanvs/scrape_input/
