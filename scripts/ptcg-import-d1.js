@@ -220,25 +220,32 @@ function upsert(table, cols, vals, pkCols) {
   const placeholders = vals.map(escSql).join(', ');
   const colList = cols.join(', ');
   const updateCols = cols.filter(c => !pkCols.includes(c));
-  const updateClause = updateCols.length
-    ? updateCols.map(c => {
-        if (PRESERVE_IF_EXCLUDED_NULL.has(c)) {
-          // COALESCE(excluded.c, c) — prefer fresh upstream when present,
-          // keep existing override when upstream null. Idempotent: TCGdex
-          // updates still flow through whenever they DO carry an image.
-          return `${c}=COALESCE(excluded.${c}, ${c})`;
-        }
-        if (JSON_MERGE_KEYS.has(c)) {
-          // RFC 7396 merge — fresh keys overwrite, absent keys preserved.
-          // Pre-stripping nulls (see stripNullPricing) keeps TCGdex
-          // empties from deleting backfilled keys.
-          return `${c}=json_patch(COALESCE(${c}, '{}'), excluded.${c})`;
-        }
-        return `${c}=excluded.${c}`;
-      }).join(', ') + `, updated_at=strftime('%s','now')`
-    : `updated_at=strftime('%s','now')`;
+  const newValue = (c) => {
+    if (PRESERVE_IF_EXCLUDED_NULL.has(c)) {
+      // COALESCE(excluded.c, c) — prefer fresh upstream when present,
+      // keep existing override when upstream null. Idempotent: TCGdex
+      // updates still flow through whenever they DO carry an image.
+      return `COALESCE(excluded.${c}, ${c})`;
+    }
+    if (JSON_MERGE_KEYS.has(c)) {
+      // RFC 7396 merge — fresh keys overwrite, absent keys preserved.
+      // Pre-stripping nulls (see stripNullPricing) keeps TCGdex
+      // empties from deleting backfilled keys.
+      return `json_patch(COALESCE(${c}, '{}'), excluded.${c})`;
+    }
+    return `excluded.${c}`;
+  };
   const conflict = pkCols.join(', ');
-  return `INSERT INTO ${table} (${colList}) VALUES (${placeholders}) ON CONFLICT(${conflict}) DO UPDATE SET ${updateClause};`;
+  const insert = `INSERT INTO ${table} (${colList}) VALUES (${placeholders}) ON CONFLICT(${conflict}) DO UPDATE SET `;
+  if (!updateCols.length) return `${insert}updated_at=strftime('%s','now');`;
+  const setClause = updateCols.map(c => `${c}=${newValue(c)}`).join(', ') + `, updated_at=strftime('%s','now')`;
+  // Skip the UPDATE when it wouldn't change anything. The TCGdex disk cache
+  // means most cards are byte-identical week to week, and every no-op
+  // rewrite still counted (plus one per touched index) against D1's 100k
+  // rows-written daily cap — this import alone was ~132k writes per run.
+  // updated_at therefore now means "last changed", not "last imported".
+  const changed = updateCols.map(c => `${c} IS NOT ${newValue(c)}`).join(' OR ');
+  return `${insert}${setClause} WHERE ${changed};`;
 }
 
 // TCGdex returns `pricing: { cardmarket: null, tcgplayer: null }` for

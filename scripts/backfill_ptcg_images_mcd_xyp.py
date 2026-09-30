@@ -23,8 +23,9 @@ Apply with:
     npx wrangler d1 execute optcg-cards --remote \\
         --file=data/backfill/mcd_xyp_images.sql
 
-Then bust the Worker edge cache:
-    curl -H "Origin: http://localhost:5173" \\
+Then bust the Worker edge cache (refresh=1 needs an API key; with only an
+Origin header it's ignored):
+    curl -H "X-API-Key: $OPTCG_API_KEY" \\
       'https://optcg-api.arjunbansal-ai.workers.dev/pokemon/cards/index?lang=en&refresh=1'
 """
 

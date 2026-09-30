@@ -14,7 +14,7 @@ A REST API for the One Piece Trading Card Game. Provides card and set data for a
 |--------|----------|-------------|
 | GET | `/cards` | All cards with filters |
 | HEAD | `/cards` | Same as GET but headers only (for uptime checks) |
-| GET | `/cards/all` | Single-shot dump of every card. Edge-cached for 1h via the Workers Cache API. Pass `?refresh=1` to purge the cached entry and re-run the D1 query (used by the image-refresh script after an upload). |
+| GET | `/cards/all` | Single-shot dump of every card. Served from a shared R2 snapshot (rebuilt at most every 6h) behind a 1h edge cache. `?refresh=1` with an `X-API-Key` rebuilds it (used by the image-refresh script after an upload); without a key it is ignored. |
 | GET | `/cards/{id}` | Single card by ID |
 | GET | `/cards/{id}/price-history` | Historical prices, one point per weekly snapshot. Optional `?range=1m\|3m\|6m\|1y\|all` (default `1y`). |
 
@@ -173,4 +173,4 @@ Open `http://localhost:8787/docs`
 
 **Card images.** Card art is © Eiichiro Oda / Shueisha, Toei Animation, Bandai Namco Entertainment Inc. The `/images/*` endpoint is a proxy. No rights to the images are claimed by this project.
 
-**Deployed API access.** `https://optcg-api.arjunbansal-ai.workers.dev` is gated to opbindr.com origins (and a small allowlist of approved partners). Browser callers from non-allowed origins receive `403 origin not allowed`; non-browser callers without a valid `X-API-Key` receive `401 api key required`. Public endpoints (`/`, `/docs`, `/openapi.json`, and `/images/*`) stay open so the API stays discoverable and binder thumbnails shared on Discord or Twitter still render. Non-commercial development access is available on request: open an issue or email arjun@neuroplexlabs.com.
+**Deployed API access.** `https://optcg-api.arjunbansal-ai.workers.dev` is gated to opbindr.com origins (and a small allowlist of approved partners). Browser callers from non-allowed origins receive `403 origin not allowed`; non-browser callers without a valid `X-API-Key` receive `401 api key required`. Public endpoints (`/`, `/docs`, `/healthz`, and `/images/*`) stay open (`/openapi.json` needs a key) so the API stays discoverable and binder thumbnails shared on Discord or Twitter still render. Non-commercial development access is available on request: open an issue or email arjun@neuroplexlabs.com.

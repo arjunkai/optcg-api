@@ -48,6 +48,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import subprocess
 import sys
 import tempfile
@@ -76,6 +77,10 @@ JSON_PATH = Path("data/jp_exclusives.json")
 R2_BUCKET = "optcg-images"
 R2_KEY_PREFIX = "cards/"
 PROXY_URL = "https://optcg-api.arjunbansal-ai.workers.dev"
+# Data routes (/cards/*) need an API key since the 2026-04-28 gate; without
+# one every lookup and the refresh=1 purge 401 silently. Issue one with
+# `npm run key:issue` and export it as OPTCG_API_KEY.
+API_HEADERS = {"X-API-Key": os.environ["OPTCG_API_KEY"]} if os.environ.get("OPTCG_API_KEY") else {}
 OFFICIAL_IMG = "https://en.onepiece-cardgame.com/images/cardlist/card/{id}.png"
 WRANGLER_CMD = ["npx", "wrangler"]
 
@@ -111,7 +116,7 @@ def load_card_from_api(card_id: str) -> dict | None:
     pipeline is source-agnostic."""
     url = f"{PROXY_URL}/cards/{card_id}"
     try:
-        resp = httpx.get(url, timeout=10)
+        resp = httpx.get(url, headers=API_HEADERS, timeout=10)
         if resp.status_code != 200:
             return None
         data = resp.json()
@@ -134,7 +139,7 @@ def load_all_dons_from_api() -> list[dict]:
     per-card lookups so the batch refresh stays fast."""
     url = f"{PROXY_URL}/cards/all"
     try:
-        resp = httpx.get(url, timeout=60)
+        resp = httpx.get(url, headers=API_HEADERS, timeout=60)
         resp.raise_for_status()
     except httpx.HTTPError as exc:
         print(f"    [error] /cards/all failed: {exc}")
@@ -470,7 +475,7 @@ def purge_cards_all() -> None:
     """Poke the Workers edge cache so /cards/all refreshes. Images in R2 are
     served fresh on every request, but the card list is cached for 1h."""
     try:
-        httpx.get(f"{PROXY_URL}/cards/all?refresh=1", timeout=30)
+        httpx.get(f"{PROXY_URL}/cards/all?refresh=1", headers=API_HEADERS, timeout=30)
     except httpx.HTTPError as exc:
         print(f"    [warn] failed to purge edge cache: {exc}")
 
