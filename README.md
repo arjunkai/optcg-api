@@ -1,9 +1,10 @@
 # OPTCG API
 
-A REST API for the One Piece Trading Card Game. Provides card and set data for all 4,347+ cards across 51 sets, plus DON cards and TCGPlayer market prices, with filtering, pagination, and multi-set support for binder apps.
+A REST API for trading card game data. Provides One Piece TCG card and set data for 4,500+ cards across 50+ sets, plus DON cards and TCGPlayer market prices, with filtering, pagination, and multi-set support for binder apps. Pokémon TCG sets, cards, and prices are also available in English, Japanese, and Chinese (Simplified and Traditional).
 
 **Live API:** `https://optcg-api.arjunbansal-ai.workers.dev`  
-**Docs:** `https://optcg-api.arjunbansal-ai.workers.dev/docs`
+**Docs:** `https://optcg-api.arjunbansal-ai.workers.dev/docs`  
+**Access:** email arjunkaibansal@gmail.com (see [Access and limits](#access-and-limits))
 
 ---
 
@@ -14,7 +15,8 @@ A REST API for the One Piece Trading Card Game. Provides card and set data for a
 |--------|----------|-------------|
 | GET | `/cards` | All cards with filters |
 | HEAD | `/cards` | Same as GET but headers only (for uptime checks) |
-| GET | `/cards/all` | Single-shot dump of every card. Served from a shared R2 snapshot (rebuilt at most every 6h) behind a 1h edge cache. `?refresh=1` with an `X-API-Key` rebuilds it (used by the image-refresh script after an upload); without a key it is ignored. |
+| GET | `/cards/index` | Slim list of every card (the fields a binder or search UI needs). Prefer this over `/cards/all` for routine syncs. |
+| GET | `/cards/all` | Single-shot dump of every card. Served from a shared R2 snapshot (rebuilt at most every 6h) behind a 1h edge cache. `?refresh=1` rebuilds it only for keys with the `admin` scope; for everyone else it is ignored. |
 | GET | `/cards/{id}` | Single card by ID |
 | GET | `/cards/{id}/price-history` | Historical prices, one point per weekly snapshot. Optional `?range=1m\|3m\|6m\|1y\|all` (default `1y`). |
 
@@ -24,10 +26,36 @@ A REST API for the One Piece Trading Card Game. Provides card and set data for a
 | GET | `/sets` | All sets |
 | HEAD | `/sets` | Same as GET but headers only (for uptime checks) |
 | GET | `/sets/{id}/cards` | All cards in a set |
+| GET | `/products` | Non-card products (sleeves, playmats, premium collections, special sets). Booster and deck products come from `/sets`. |
+
+### Artwork (used by OPCanvs)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/illustrators` | Illustrators with their card counts. `page`, `page_size`, `sort` |
+| GET | `/illustrators/{slug}` | One illustrator and their cards |
+| GET | `/characters` | Characters with their card counts. `page`, `page_size`, `q`, `sort` |
+| GET | `/characters/{id}` | One character, their cards, and related products |
+| GET | `/artwork` | Card art, filterable by `artist` or `character`. `page`, `page_size` |
+| GET | `/artwork/gallery` | Curated art gallery. `collection`, `page`, `page_size` |
+| GET | `/representatives` | One representative card per character, artist, or set. `kind=character\|artist\|set` |
+
+### Pokémon TCG
+Requires a key with the `ptcg` scope. Every route takes `?lang=en\|ja\|zh-cn\|zh-tw` (default `en`).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/pokemon/sets` | Sets in one language, newest first |
+| GET | `/pokemon/sets/{set_id}/cards` | Cards in one set |
+| GET | `/pokemon/cards/index` | Slim list of every card. Use this for routine syncs. |
+| GET | `/pokemon/cards/all` | Full card list (slim fields plus the raw TCGdex payload) |
+| GET | `/pokemon/cards/{card_id}` | Single card |
+| GET | `/pokemon/cards/{card_id}/price-history` | Historical prices. Optional `?range=`, same values as One Piece cards |
+| GET | `/pokemon/images/{lang}/{series}/{set_id}/{local_id}/{filename}` | Card image proxy (public) |
 
 ### Images
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| GET | `/images/set/{set_id}` | Set banner art. `?kind=box\|logo` |
 | GET | `/images/{card_id}` | Card image with CORS headers. Lookup order: Cloudflare R2 bucket `optcg-images/cards/{id}.png` first (curated high-res scans for DON cards and JP-exclusive variants), then TCGPlayer CDN for uncurated DONs, then `en.onepiece-cardgame.com` as the last resort for regular cards. Served with `Cache-Control: public, max-age=86400`. |
 
 ---
@@ -43,6 +71,7 @@ A REST API for the One Piece Trading Card Game. Provides card and set data for a
 | `name` | string | `Luffy` | Partial match on card name or types (traits like `East Blue`, `Straw Hat Crew`) |
 | `parallel` | boolean | `true` | true = parallel only, false = base only |
 | `variant_type` | string | `manga` | alt_art, reprint, manga, serial |
+| `finish` | string | `foil` | Filter by print finish (case-insensitive) |
 | `min_power` | int | `5000` | Minimum power |
 | `max_power` | int | `9000` | Maximum power |
 | `min_cost` | int | `1` | Minimum cost |
@@ -129,7 +158,7 @@ Each higher-priority source skips rows already populated by a higher tier on re-
 
 ## Data Coverage
 
-- **4,566 unique cards** across **51 sets** + **195 DON cards**
+- **4,500+ unique cards** across **50+ sets** + **195 DON cards**
 - Booster packs OP-01 through OP-15
 - Starter decks ST-01 through ST-29
 - Extra Boosters, Premium Boosters, Promos
@@ -173,4 +202,16 @@ Open `http://localhost:8787/docs`
 
 **Card images.** Card art is © Eiichiro Oda / Shueisha, Toei Animation, Bandai Namco Entertainment Inc. The `/images/*` endpoint is a proxy. No rights to the images are claimed by this project.
 
-**Deployed API access.** `https://optcg-api.arjunbansal-ai.workers.dev` is gated to opbindr.com origins (and a small allowlist of approved partners). Browser callers from non-allowed origins receive `403 origin not allowed`; non-browser callers without a valid `X-API-Key` receive `401 api key required`. Public endpoints (`/`, `/docs`, `/healthz`, and `/images/*`) stay open (`/openapi.json` needs a key) so the API stays discoverable and binder thumbnails shared on Discord or Twitter still render. Non-commercial development access is available on request: open an issue or email arjun@neuroplexlabs.com.
+**Deployed API access.** See [Access and limits](#access-and-limits) below.
+
+---
+
+## Access and limits
+
+The deployed API at `https://optcg-api.arjunbansal-ai.workers.dev` is not open to the public. OPBindr and OPCanvs (opbindr.com, opcanvs.com) call it directly from the browser; everyone else needs an API key.
+
+- **Getting a key.** Non-commercial development access is available on request. Email arjunkaibansal@gmail.com with your project name, what you're building, which games you need (One Piece, Pokémon), and roughly how many requests a day you expect.
+- **Using a key.** Send it as the `X-API-Key` header on every request. Keys are scoped: `optcg` for the One Piece routes, `ptcg` for `/pokemon/*`.
+- **Limits per key.** 300 requests per minute and 100,000 requests per day (resets at 00:00 UTC). Over either limit you get `429` with a `Retry-After` header. Responses are cached at the edge, so for full syncs use `/cards/index` (or `/pokemon/cards/index`) rather than paging through `/cards`.
+- **Errors.** Browser callers from other sites get `403 origin not allowed`. Requests without a valid key get `401 api key required`. A key without the right scope gets `403 scope_required`.
+- **Public endpoints.** `/`, `/docs`, `/healthz`, `/images/*`, and `/pokemon/images/*` need no key, so the API stays discoverable and binder thumbnails shared on Discord or Twitter still render. `/openapi.json` needs a key: fetch it with your key and open it in Scalar, Swagger UI, Postman, or Insomnia.
