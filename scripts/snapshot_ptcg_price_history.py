@@ -10,6 +10,13 @@ weekly runs naturally chart out one snapshot per Monday.
 The Worker's /pokemon/cards/:id/price-history endpoint reads from
 this table to render charts. See src/pokemon/cards.js.
 
+What gets stored (2026-09-30): every USD series (TCGplayer variants and
+the single-price sources), plus ONE Cardmarket series per card, the
+first present in the chart's CARDMARKET_VARIANT_PRIORITY. OPBindr's
+PriceHistoryChart only plots USD points and picks one series per card,
+so the other 11 Cardmarket keys (EUR, never drawn) were ~80% of the rows
+and pushed the database past D1's 500 MB free-tier cap.
+
 Why Python and not the original node version: shell-quoting a long
 SELECT through Node's execFileSync with shell:true on Windows broke
 wrangler's argument parsing. Python's subprocess.run handles the
@@ -43,10 +50,12 @@ TCGPLAYER_VARIANTS = [
     "firstEditionHolofoil", "firstEditionNormal",
     "unlimitedHolofoil", "unlimited",
 ]
+# Same order as CARDMARKET_VARIANT_PRIORITY in opbindr's
+# PriceHistoryChart.jsx; only the first one present is stored.
 CARDMARKET_VARIANTS = [
-    "avg", "trend", "avg7", "avg30", "avg1", "low", "lowFoil",
-    "avg7Foil", "avg30Foil",
-    "reverseHoloSell", "reverseHoloLow", "reverseHoloTrend",
+    "avg", "trend", "avg7", "avg30", "avg1", "low",
+    "reverseHoloSell", "reverseHoloTrend", "reverseHoloLow",
+    "avg7Foil", "avg30Foil", "lowFoil",
 ]
 SINGLE_PRICE_SOURCES = ["manual", "hareruya", "yuyutei", "pricecharting", "ebay"]
 
@@ -76,37 +85,8 @@ def main() -> None:
             skipped += 1
             continue
 
-        # tcgplayer: per-variant .market in USD
-        tcg = pj.get("tcgplayer")
-        if isinstance(tcg, dict):
-            for v in TCGPLAYER_VARIANTS:
-                block = tcg.get(v)
-                if isinstance(block, dict):
-                    market = block.get("market")
-                    if isinstance(market, (int, float)) and market > 0:
-                        stmts.append(_insert(cid, "tcgplayer", v, float(market), None, now))
-
-        # cardmarket: flat keys in EUR
-        cm = pj.get("cardmarket")
-        if isinstance(cm, dict):
-            for v in CARDMARKET_VARIANTS:
-                val = cm.get(v)
-                if isinstance(val, (int, float)) and val > 0:
-                    stmts.append(_insert(cid, "cardmarket", v, None, float(val), now))
-
-        # Single-price sources.
-        for src in SINGLE_PRICE_SOURCES:
-            block = pj.get(src)
-            if not isinstance(block, dict):
-                continue
-            price = None
-            for key in ("price", "price_usd", "market"):
-                v = block.get(key)
-                if isinstance(v, (int, float)) and v > 0:
-                    price = float(v)
-                    break
-            if price is not None:
-                stmts.append(_insert(cid, src, "market", price, None, now))
+        for source, variant, usd, eur in history_rows(pj):
+            stmts.append(_insert(cid, source, variant, usd, eur, now))
 
     print(f"   {len(stmts)} history rows to insert ({skipped} cards skipped on bad pricing_json)")
     if not stmts:
@@ -150,6 +130,41 @@ def main() -> None:
             print(f"   FAIL after 5 retries: {last_err}")
             sys.exit(1)
     print("Done.")
+
+
+def history_rows(pj: dict) -> list[tuple[str, str, float | None, float | None]]:
+    """(source, variant, price_usd, price_eur) tuples to snapshot for one card."""
+    out: list[tuple[str, str, float | None, float | None]] = []
+
+    def positive(v):
+        return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
+
+    # tcgplayer: per-variant .market in USD
+    tcg = pj.get("tcgplayer")
+    if isinstance(tcg, dict):
+        for v in TCGPLAYER_VARIANTS:
+            block = tcg.get(v)
+            if isinstance(block, dict) and positive(block.get("market")):
+                out.append(("tcgplayer", v, float(block["market"]), None))
+
+    # cardmarket: flat keys in EUR, first present only
+    cm = pj.get("cardmarket")
+    if isinstance(cm, dict):
+        for v in CARDMARKET_VARIANTS:
+            if positive(cm.get(v)):
+                out.append(("cardmarket", v, None, float(cm[v])))
+                break
+
+    # Single-price sources.
+    for src in SINGLE_PRICE_SOURCES:
+        block = pj.get(src)
+        if not isinstance(block, dict):
+            continue
+        for key in ("price", "price_usd", "market"):
+            if positive(block.get(key)):
+                out.append((src, "market", float(block[key]), None))
+                break
+    return out
 
 
 def _fetch_priced_rows() -> list[dict]:

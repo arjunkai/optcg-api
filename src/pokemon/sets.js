@@ -11,7 +11,8 @@ function jsonResponse(obj, status = 200) {
     status,
     headers: {
       'Content-Type': 'application/json',
-      'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+      // Errors (bad lang, unknown card) must not stick in browsers for an hour.
+      'Cache-Control': status === 200 ? 'public, max-age=3600, stale-while-revalidate=86400' : 'no-store',
     },
   });
 }

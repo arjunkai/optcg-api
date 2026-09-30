@@ -22,7 +22,14 @@ const NAMES = [
   'cards-all-v1',
   'cards-index-v1',
   ...PTCG_LANGS.map((l) => `pokemon-index-${l}-v8`),
-  ...PTCG_LANGS.map((l) => `pokemon-all-${l}-v1`),
+  ...PTCG_LANGS.map((l) => `pokemon-all-${l}-v2`),
+  // OPCanvs directory tile covers (src/canvs.js /representatives)
+  'reps-character-v1',
+  'reps-artist-v1',
+  'reps-set-v1',
+  // Derived datasets answered in JS (src/canvs.js)
+  'characters-roster-v1',
+  'artwork-collections-v1',
 ];
 
 let failed = 0;

@@ -5,9 +5,10 @@
 // the alert threshold (80% of the 100k daily limit) and posts a one-line
 // Discord message via webhook.
 //
-// Dedup: Cache API key `https://rl.local/alert/{prefix}/{day}` is set on
-// every alert with a 24h TTL, so each (key, day) pair only triggers one
-// notification regardless of how many times the cron runs that day.
+// Dedup: an R2 marker `state/alerts/{day}/{prefix}` is written on every
+// alert, so each (key, day) pair only triggers one notification regardless
+// of how many times the cron runs that day. (It used to live in the Cache
+// API, which is per colo, and cron runs land in different colos.)
 //
 // Setup:
 //   1. Create a Discord webhook in the target channel.
@@ -32,47 +33,55 @@ const ALERT_THRESHOLD_PCT = 0.8;
 //
 // This cron proactively pulls cold cards into R2 so NO card depends on a live
 // fetch — including newly-released sets, which is what makes it permanent
-// rather than a one-off. It sweeps the catalog in bounded batches via a Cache
-// API cursor and caps live fetches per run to stay well under the Worker
-// subrequest limit. Purely additive: only writes to the R2 image cache, never
+// rather than a one-off. It sweeps the catalog in bounded batches (keyset
+// paging on id, cursor kept in R2 at state/warm-cursor so it survives cron
+// runs landing in different colos) and caps live fetches per run to stay
+// well under the Worker subrequest limit. Purely additive: only writes to the R2 image cache, never
 // touches card rows or counts.
 const WARM_SCAN = 300;       // catalog rows R2-head-checked per run (cheap binding ops)
-const WARM_FETCH_CAP = 24;   // max live wsrv fetches per run (subrequest budget)
+const WARM_FETCH_CAP = 20;   // cold cards per run; each takes 1-2 wsrv fetches (EN, then JA), so <= 40 of the 50-subrequest budget
 const WARM_CONCURRENCY = 6;  // concurrent warms (gentle on wsrv; bounded wall-clock)
+
+const CURSOR_KEY = 'state/warm-cursor';
 
 export async function warmColdImages(env) {
   if (!env?.DB || !env?.IMAGES) return;
 
-  const cache = caches.default;
-  const cursorKey = new Request('https://warm.local/img-cursor');
-  let offset = 0;
+  // Last card id examined by the previous run ('' = start of catalog).
+  let after = '';
   try {
-    const cur = await cache.match(cursorKey);
-    if (cur) offset = parseInt(await cur.text(), 10) || 0;
-  } catch { offset = 0; }
+    const cur = await env.IMAGES.get(CURSOR_KEY);
+    if (cur) after = (await cur.text()).trim();
+  } catch { after = ''; }
 
   let rows = [];
   try {
+    // Keyset paging reads only the window (an OFFSET re-reads every row
+    // before it, up to the whole catalog).
     const res = await env.DB.prepare(
-      "SELECT id FROM cards WHERE id NOT LIKE 'DON-%' ORDER BY id LIMIT ? OFFSET ?"
-    ).bind(WARM_SCAN, offset).all();
+      "SELECT id FROM cards WHERE id > ? AND id NOT LIKE 'DON-%' ORDER BY id LIMIT ?"
+    ).bind(after, WARM_SCAN).all();
     rows = res.results || [];
   } catch (err) {
     console.error('warm: D1 query failed:', err?.message || err);
     return;
   }
 
-  // Wrap the cursor at the end of the catalog so the sweep keeps cycling.
-  const nextOffset = rows.length < WARM_SCAN ? 0 : offset + WARM_SCAN;
-
-  // Phase 1: find cold cards (R2 head is a binding op, not a subrequest), capped.
+  // Phase 1: find cold cards (R2 head is a binding op, not a subrequest). Stop
+  // at the fetch cap and resume from the last id examined, so cards past the
+  // cap aren't skipped until the next full sweep.
   const cold = [];
+  let lastExamined = after;
   for (const { id } of rows) {
     if (cold.length >= WARM_FETCH_CAP) break;
+    lastExamined = id;
     try {
       if (!(await env.IMAGES.head(`cards/${id}.png`))) cold.push(id);
     } catch { /* head failure -> treat as not-cold; next sweep retries */ }
   }
+  // Wrap to the start once the end of the catalog has been examined.
+  const reachedEnd = rows.length < WARM_SCAN && lastExamined === (rows.at(-1)?.id ?? after);
+  const next = reachedEnd ? '' : lastExamined;
 
   // Phase 2: warm cold cards with bounded concurrency.
   let warmed = 0;
@@ -83,12 +92,10 @@ export async function warmColdImages(env) {
   }
 
   try {
-    await cache.put(cursorKey, new Response(String(nextOffset), {
-      headers: { 'Cache-Control': 'max-age=2592000' },
-    }));
+    await env.IMAGES.put(CURSOR_KEY, next);
   } catch { /* cursor advance is best-effort; worst case we re-scan the window */ }
 
-  console.log(`warm: offset=${offset} scanned=${rows.length} cold=${cold.length} warmed=${warmed} next=${nextOffset}`);
+  console.log(`warm: after=${after || '-'} scanned=${rows.length} cold=${cold.length} warmed=${warmed} next=${next || '-'}`);
 }
 
 export async function checkUsageAlerts(env) {
@@ -106,11 +113,11 @@ export async function checkUsageAlerts(env) {
 
   if (results.length === 0) return;
 
-  const cache = caches.default;
-
   for (const row of results) {
-    const dedupKey = new Request(`https://rl.local/alert/${encodeURIComponent(row.key_prefix)}/${today}`);
-    if (await cache.match(dedupKey)) continue;
+    const dedupKey = `state/alerts/${today}/${encodeURIComponent(row.key_prefix)}`;
+    try {
+      if (env.IMAGES && await env.IMAGES.head(dedupKey)) continue;
+    } catch { /* R2 hiccup: alert anyway rather than stay silent */ }
 
     const pct = ((row.count / DAILY_LIMIT) * 100).toFixed(1);
     const overLimit = row.count >= DAILY_LIMIT;
@@ -133,9 +140,7 @@ export async function checkUsageAlerts(env) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
       });
-      await cache.put(dedupKey, new Response('1', {
-        headers: { 'Cache-Control': 'max-age=86400' },
-      }));
+      if (env.IMAGES) await env.IMAGES.put(dedupKey, '1');
     } catch (err) {
       // Swallow — next cron tick will retry. Logging only.
       console.error('usage-alert webhook failed:', err?.message || err);

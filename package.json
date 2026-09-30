@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "key:issue": "node scripts/issue-key.mjs",

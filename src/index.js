@@ -4,42 +4,33 @@ import { registerSetRoutes } from './sets.js';
 import { registerCardRoutes } from './cards.js';
 import { registerImageRoutes } from './images.js';
 import { registerDocsRoutes } from './docs.js';
-import { gate } from './auth.js';
+import { gate, isAllowedOrigin } from './auth.js';
+import { edgeCache } from './edgeCache.js';
 import { registerPokemonRoutes } from './pokemon/index.js';
 import { registerCanvsRoutes } from './canvs.js';
 import { checkUsageAlerts, warmColdImages } from './cron.js';
-
-const CORS_ALLOWED_EXACT = [
-  'https://opbindr.com',
-  'https://www.opbindr.com',
-  'https://opbindr.pages.dev',
-  'https://opcanvs.com',
-  'https://www.opcanvs.com',
-  'http://localhost:5173',
-  'http://localhost:4173',
-];
 
 const app = new Hono();
 
 app.use('*', cors({
   origin: (origin) => {
-    // Echo the request origin back only if it's in our allowlist.
-    // hono/cors expects either a string (one origin), an array, or a
-    // function. The function form lets us return null (no header set,
-    // browser blocks the request) for disallowed origins.
-    if (CORS_ALLOWED_EXACT.includes(origin)) return origin;
-    if (/^https:\/\/[a-z0-9-]+\.opbindr\.pages\.dev$/.test(origin || '')) return origin;
-    if (/^https:\/\/[a-z0-9-]+\.opcanvs\.pages\.dev$/.test(origin || '')) return origin;
-    // For non-browser callers (no Origin header) hono/cors gets undefined
-    // and we don't set the CORS headers. The gate() middleware below
-    // handles auth via X-API-Key.
-    return null;
+    // Echo the request origin back only if it's in the allowlist (shared
+    // with the gate, see auth.js). hono/cors expects either a string (one
+    // origin), an array, or a function. The function form lets us return
+    // null (no header set, browser blocks the request) for disallowed
+    // origins. Non-browser callers (no Origin header) get no CORS headers;
+    // the gate() middleware below handles auth via X-API-Key.
+    return isAllowedOrigin(origin) ? origin : null;
   },
   allowMethods: ['GET', 'HEAD', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'X-API-Key'],
+  // Lets browser clients back off on a 429 (Retry-After) and see cache hits.
+  exposeHeaders: ['Retry-After', 'X-Cache'],
 }));
 
 app.use('*', gate());
+// After the gate (needs to know browser vs keyed caller), before routes.
+app.use('*', edgeCache());
 
 // Root is public so /docs has somewhere to send curious visitors. Don't
 // enumerate the route surface here — keyholders read /openapi.json, the

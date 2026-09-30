@@ -118,6 +118,23 @@ Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPla
   `ptcg_cards`, both nullable with partial indexes. Populated by
   `scripts/enrich_ja_promo_campaigns.py` (Bulbapedia category crawler).
   See "JA promo campaign enrichment" below.
+- migration 016: `card_translations` (EN/JA display names, effects, images).
+- migration 017: OPCanvs metadata tables (illustrators, characters, crews,
+  locations, artwork and their card joins).
+- migration 018: Wikidata/Fandom character columns.
+- migration 019: `sets.logo_url` / `sets.box_url` for OPCanvs set banners.
+- migration 020: RECORD ONLY, already applied to prod by hand, don't run it
+  remotely. `artwork.source_url/kind/artist/collection`, the `products` and
+  `set_characters` tables, and the older `cards.finish` / `sets.type`.
+  `schema.sql` was regenerated from prod `sqlite_master` on 2026-09-29 and
+  matches it column for column.
+- migration 021: compacts `ptcg_price_history` (WITHOUT ROWID, one
+  Cardmarket series per card instead of 12, no second index) and drops the
+  duplicate `idx_price_history_card_time`. The table had grown to ~5.3M rows /
+  ~650 MB and pushed the database past D1's 500 MB free cap (every write then
+  fails with code 7500). Apply to prod with
+  `node scripts/compact-ptcg-price-history.mjs` (chunked; needs Workers Paid
+  headroom), not by running the file. `--discard` drops the history instead.
 
 ## Pricing
 - `price` REAL, `foil_price` REAL (unused), `delta_price`/`delta_7d_price` (future), `tcg_ids` TEXT (JSON array), `price_updated_at` INTEGER, `price_source` TEXT
@@ -342,8 +359,9 @@ npx wrangler d1 execute optcg-cards --remote --command \
 ```
 
 After every refresh, also bust the Worker caches. `refresh=1` only works
-with an `X-API-Key` (issue yourself one with `npm run key:issue`); with just
-an Origin header it is ignored, because Origin is forgeable and a refresh
+with an `X-API-Key` whose scopes include `admin` (issue yourself one with
+`npm run key:issue -- --owner me --scopes optcg,ptcg,admin`); other keys and
+Origin-only callers are ignored, because Origin is forgeable and a refresh
 loop would force full-table D1 reads. It purges that colo's edge entry and
 rebuilds the R2 snapshot (`snapshots/*.json`, see `src/snapshot.js`) that
 every colo shares:
@@ -365,6 +383,9 @@ The account is on the D1 free tier: **5M rows read and 100k rows written per
 day** (UTC). Exceeding either makes queries fail until 00:00 UTC, which takes
 the whole API down (every data route 500s). Rules that keep us under it:
 
+- Storage cap is 500 MB per database on the free plan (`wrangler d1 info
+  optcg-cards` shows `database_size`). Anything that appends every week
+  (price history) must store only what the UI reads.
 - Imports must skip no-op writes. A no-op `UPDATE`/UPSERT still counts as a
   row written (plus one per index on a written column). Use
   `ON CONFLICT ... DO UPDATE SET ... WHERE col IS NOT excluded.col OR ...`,
@@ -375,6 +396,15 @@ the whole API down (every data route 500s). Rules that keep us under it:
   `c.id IN (SELECT ...)` so an index drives the query).
 - `rows_read` / `rows_written` show in `wrangler d1 execute --json` output
   and in the CI logs; check them when adding a step.
+- The edge-cache key keeps only the params each route reads
+  (`ROUTE_PARAMS` in `src/edgeCache.js`). A route that reads a new query param
+  must be added there; `npm test` fails if it isn't.
+- Misses that scan a whole table (`isHeavyMiss`) are limited to 60/min per IP
+  (`RL_IP_HEAVY`); everything else to 1500/min (`RL_IP`). A new expensive
+  route belongs in `isHeavyMiss`, or should answer from a snapshot in JS the
+  way `/characters` does (`loadSnapshotData`).
+- Snapshots keep a last-known-good copy at `snapshots/lkg/`, which the weekly
+  purge leaves alone, so a D1 outage never 500s the bulk indexes.
 
 ### Coverage today (2026-04-30)
 
