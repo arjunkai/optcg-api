@@ -28,7 +28,14 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = UPSTREAM_TIMEOUT_MS)
   }
 }
 
-async function proxyAndCache(url, requestHeaders = {}) {
+// `seen.transient` is set when an attempt failed for a reason that may pass
+// (timeout, network error, 5xx, 403/429 hot-link block) rather than a clean
+// 404/410. Callers only remember a miss when nothing was transient.
+function noteStatus(seen, status) {
+  if (seen && status !== 404 && status !== 410) seen.transient = true;
+}
+
+async function proxyAndCache(url, requestHeaders = {}, seen = null, directTimeoutMs = UPSTREAM_TIMEOUT_MS) {
   const cacheKey = new Request(url);
   const cache = caches.default;
   let cached = await cache.match(cacheKey);
@@ -39,10 +46,12 @@ async function proxyAndCache(url, requestHeaders = {}) {
   // the wsrv.nl fallback. Treat thrown errors and non-200 the same.
   let upstream = null;
   try {
-    const res = await fetchWithTimeout(url, { headers: requestHeaders }, UPSTREAM_TIMEOUT_MS);
+    const res = await fetchWithTimeout(url, { headers: requestHeaders }, directTimeoutMs);
     if (res.status === 200) upstream = res;
+    else noteStatus(seen, res.status);
   } catch (_e) {
     upstream = null;
+    noteStatus(seen, 0);
   }
 
   // Fallback through wsrv.nl. It re-proxies arbitrary URLs through its
@@ -54,8 +63,10 @@ async function proxyAndCache(url, requestHeaders = {}) {
     try {
       const res = await fetchWithTimeout(proxied, {}, WSRV_TIMEOUT_MS);
       if (res.status === 200) upstream = res;
+      else noteStatus(seen, res.status);
     } catch (_e) {
       upstream = null;
+      noteStatus(seen, 0);
     }
   }
 
@@ -63,7 +74,7 @@ async function proxyAndCache(url, requestHeaders = {}) {
   // A 200 that isn't an image (an HTML soft-404, an error page) must not be
   // relabelled image/png and persisted to R2 forever.
   const contentType = upstream.headers.get('content-type') || '';
-  if (!contentType.startsWith('image/')) return null;
+  if (!contentType.startsWith('image/')) { noteStatus(seen, 0); return null; }
   // Keep the real type (TCGPlayer DON art is JPEG); callers that persist to R2
   // store the bytes, so this only affects the response header.
   return new Response(upstream.body, { headers: { ...IMG_HEADERS, 'Content-Type': contentType } });
@@ -84,7 +95,10 @@ const missKey = (kind, id) => new Request(`https://image-miss.local/${kind}/${id
 async function knownMiss(kind, id) {
   try { return Boolean(await caches.default.match(missKey(kind, id))); } catch { return false; }
 }
-function notFound(c, kind, id) {
+function notFound(c, kind, id, seen = null) {
+  // A timeout or upstream block may clear on the next request: answer 404
+  // without remembering it, and don't let browsers or wsrv keep it.
+  if (seen?.transient) return c.body(null, 404, { 'Cache-Control': 'no-store' });
   c.executionCtx.waitUntil(
     caches.default.put(missKey(kind, id), new Response('1', {
       headers: { 'Cache-Control': `max-age=${MISS_TTL_S}` },
@@ -97,8 +111,8 @@ function notFound(c, kind, id) {
 // on its behalf) can hand back a 200 with a 0-byte body when an id is absent on
 // that host; caching that empty "success" used to poison R2/edge with a broken
 // image. Returns an ArrayBuffer with real bytes, or null.
-async function fetchImageBytes(url, referer) {
-  const res = await proxyAndCache(url, referer ? { Referer: referer } : {});
+async function fetchImageBytes(url, referer, seen = null) {
+  const res = await proxyAndCache(url, referer ? { Referer: referer } : {}, seen);
   if (!res) return null;
   const buf = await res.arrayBuffer();
   return buf && buf.byteLength > 0 ? buf : null;
@@ -160,6 +174,7 @@ export function registerImageRoutes(app) {
     if (await knownMiss(missKind, cardId)) {
       return c.body(null, 404, { 'Cache-Control': `public, max-age=${MISS_TTL_S}` });
     }
+    const seen = { transient: false };
 
     // 1b. JA: proxy the Japanese official scan, persist under cards/ja/:id.
     //     If the JA host has no image at this id (the JA art is identical to
@@ -171,7 +186,7 @@ export function registerImageRoutes(app) {
       const jaUrl = `https://www.onepiece-cardgame.com/images/cardlist/card/${cardId}.png`;
       // fetchImageBytes rejects a 200 with an empty body, which used to be
       // written to R2 and served as a blank image.
-      const buf = await fetchImageBytes(jaUrl, 'https://www.onepiece-cardgame.com/');
+      const buf = await fetchImageBytes(jaUrl, 'https://www.onepiece-cardgame.com/', seen);
       if (buf) {
         c.executionCtx.waitUntil(
           c.env.IMAGES
@@ -188,8 +203,21 @@ export function registerImageRoutes(app) {
       // else fall through to the EN upstream block below.
     }
 
-    // 2. DON cards fall back to TCGPlayer CDN (until mapped to R2)
+    // 2. DON cards without a curated R2 scan fall back to TCGPlayer's CDN art.
+    //    The first successful fetch is kept in R2 under cards/fallback/, so
+    //    the card stops depending on a live TCGPlayer fetch (a timeout there
+    //    used to blank the image). The curated key (cards/DON-NNN.png, step 1)
+    //    is still checked first, so a later curated upload wins.
     if (cardId.startsWith('DON-')) {
+      const fallbackKey = `cards/fallback/${cardId}`;
+      if (c.env.IMAGES) {
+        const kept = await c.env.IMAGES.get(fallbackKey);
+        if (kept && kept.size > 0) {
+          return new Response(kept.body, {
+            headers: { ...IMG_HEADERS, 'Content-Type': kept.httpMetadata?.contentType || 'image/jpeg' },
+          });
+        }
+      }
       const row = await c.env.DB
         .prepare('SELECT tcg_ids FROM cards WHERE id = ?')
         .bind(cardId)
@@ -199,12 +227,22 @@ export function registerImageRoutes(app) {
       try { tcgIds = JSON.parse(row.tcg_ids); } catch { return notFound(c, missKind, cardId); }
       if (!tcgIds?.length) return notFound(c, missKind, cardId);
       const url = `https://tcgplayer-cdn.tcgplayer.com/product/${tcgIds[0]}_in_1000x1000.jpg`;
-      const res = await proxyAndCache(url);
+      // TCGPlayer isn't the host blocking Worker IPs, so it gets longer than
+      // the 2s Bandai timeout before the wsrv fallback.
+      const res = await proxyAndCache(url, {}, seen, 6000);
       if (res) {
-        c.executionCtx.waitUntil(caches.default.put(new Request(url), res.clone()));
-        return res;
+        const contentType = res.headers.get('content-type') || 'image/jpeg';
+        const buf = await res.arrayBuffer();
+        if (buf.byteLength > 0) {
+          c.executionCtx.waitUntil(
+            c.env.IMAGES
+              ? c.env.IMAGES.put(fallbackKey, buf, { httpMetadata: { contentType } }).catch(() => {})
+              : caches.default.put(new Request(url), new Response(buf, { headers: { ...IMG_HEADERS, 'Content-Type': contentType } })),
+          );
+          return new Response(buf, { headers: { ...IMG_HEADERS, 'Content-Type': contentType } });
+        }
       }
-      return notFound(c, missKind, cardId);
+      return notFound(c, missKind, cardId, seen);
     }
 
     // 3. Regular cards proxy from the official site, then PERSIST to R2 so we
@@ -224,8 +262,8 @@ export function registerImageRoutes(app) {
     const jaUrl = `https://www.onepiece-cardgame.com/images/cardlist/card/${cardId}.png`;
     // A ?lang=ja request already tried the JA host in 1b.
     const buf =
-      (await fetchImageBytes(enUrl, 'https://en.onepiece-cardgame.com/')) ||
-      (lang === 'ja' ? null : await fetchImageBytes(jaUrl, 'https://www.onepiece-cardgame.com/'));
+      (await fetchImageBytes(enUrl, 'https://en.onepiece-cardgame.com/', seen)) ||
+      (lang === 'ja' ? null : await fetchImageBytes(jaUrl, 'https://www.onepiece-cardgame.com/', seen));
     if (buf) {
       c.executionCtx.waitUntil(
         c.env.IMAGES
@@ -234,7 +272,7 @@ export function registerImageRoutes(app) {
       );
       return new Response(buf, { headers: IMG_HEADERS });
     }
-    return notFound(c, missKind, cardId);
+    return notFound(c, missKind, cardId, seen);
   });
 
   // GET /images/set/:set_id?kind=box|logo
@@ -265,8 +303,9 @@ export function registerImageRoutes(app) {
       .first();
     if (!row || !row.url) return notFound(c, missKind, setId);
 
-    const buf = await fetchImageBytes(row.url, 'https://en.onepiece-cardgame.com/');
-    if (!buf) return notFound(c, missKind, setId);
+    const seen = { transient: false };
+    const buf = await fetchImageBytes(row.url, 'https://en.onepiece-cardgame.com/', seen);
+    if (!buf) return notFound(c, missKind, setId, seen);
     c.executionCtx.waitUntil(
       c.env.IMAGES
         ? c.env.IMAGES.put(r2Key, buf, { httpMetadata: { contentType: 'image/png' } })
