@@ -9,6 +9,16 @@ export function numParam(raw) {
   return Number.isFinite(n) ? n : null;
 }
 
+// page / page_size for a list route. Floors both (a fractional or huge value
+// used to bind a non-integer LIMIT/OFFSET and 500) and caps page so the
+// OFFSET stays finite. Absent/invalid values fall back as before.
+const MAX_PAGE = 100_000;
+export function pageParams(q, { defaultSize = 50, maxSize = 500 } = {}) {
+  const page = Math.min(MAX_PAGE, Math.max(1, Math.floor(Number(q.page)) || 1));
+  const pageSize = Math.min(maxSize, Math.max(1, Math.floor(Number(q.page_size)) || defaultSize));
+  return { page, pageSize, offset: (page - 1) * pageSize };
+}
+
 // totalCount for a paginated list. When page 1 came back short, the page IS
 // the whole result, so the COUNT(*) query (often a full scan on searches) is
 // skipped. Otherwise runs countSql, which must select one column `total`.
@@ -286,9 +296,7 @@ export function registerCardRoutes(app) {
     const nullsOrder = sortCol === 'c.id' ? '' : ' NULLS LAST';
     const orderBy = `ORDER BY ${sortCol} ${sortDir}${nullsOrder}, c.id ASC`;
 
-    const page = Math.max(1, Number(q.page) || 1);
-    const pageSize = Math.min(500, Math.max(1, Number(q.page_size) || 50));
-    const offset = (page - 1) * pageSize;
+    const { page, pageSize, offset } = pageParams(q);
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
 
