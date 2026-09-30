@@ -128,6 +128,13 @@ Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPla
   `set_characters` tables, and the older `cards.finish` / `sets.type`.
   `schema.sql` was regenerated from prod `sqlite_master` on 2026-09-29 and
   matches it column for column.
+- migration 021: compacts `ptcg_price_history` (WITHOUT ROWID, one
+  Cardmarket series per card instead of 12, no second index) and drops the
+  duplicate `idx_price_history_card_time`. The table had grown to ~5.3M rows /
+  ~650 MB and pushed the database past D1's 500 MB free cap (every write then
+  fails with code 7500). Apply to prod with
+  `node scripts/compact-ptcg-price-history.mjs` (chunked; needs Workers Paid
+  headroom), not by running the file. `--discard` drops the history instead.
 
 ## Pricing
 - `price` REAL, `foil_price` REAL (unused), `delta_price`/`delta_7d_price` (future), `tcg_ids` TEXT (JSON array), `price_updated_at` INTEGER, `price_source` TEXT
@@ -376,6 +383,9 @@ The account is on the D1 free tier: **5M rows read and 100k rows written per
 day** (UTC). Exceeding either makes queries fail until 00:00 UTC, which takes
 the whole API down (every data route 500s). Rules that keep us under it:
 
+- Storage cap is 500 MB per database on the free plan (`wrangler d1 info
+  optcg-cards` shows `database_size`). Anything that appends every week
+  (price history) must store only what the UI reads.
 - Imports must skip no-op writes. A no-op `UPDATE`/UPSERT still counts as a
   row written (plus one per index on a written column). Use
   `ON CONFLICT ... DO UPDATE SET ... WHERE col IS NOT excluded.col OR ...`,

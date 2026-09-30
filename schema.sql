@@ -1,7 +1,10 @@
 -- schema.sql: the full production schema as a fresh database.
 --
 -- Generated from prod sqlite_master (2026-09-29), so column order matches prod
--- (columns added by ALTER TABLE sit at the end of their table). Keep it in
+-- (columns added by ALTER TABLE sit at the end of their table), then moved
+-- forward to migration 021 (compact ptcg_price_history). Until
+-- scripts/compact-ptcg-price-history.mjs has run on prod, prod still has the
+-- old ptcg_price_history and idx_price_history_card_time. Keep it in
 -- sync with each migration. Only for creating a NEW database (local/dev):
 -- CREATE TABLE fails on an existing table, which is deliberate — this file
 -- used to start with DROP TABLEs, so running it against optcg-cards --remote
@@ -76,8 +79,6 @@ CREATE TABLE card_price_history (
   PRIMARY KEY (card_id, captured_at)
 );
 
-CREATE INDEX idx_price_history_card_time
-  ON card_price_history(card_id, captured_at DESC);
 
 
 -- ===== OPCanvs metadata (017, 018, 020) =====
@@ -223,17 +224,16 @@ CREATE INDEX ptcg_cards_name_en ON ptcg_cards (name_en) WHERE name_en IS NOT NUL
 CREATE INDEX ptcg_cards_name_lang on ptcg_cards (lang, name);
 CREATE INDEX ptcg_cards_set_lang on ptcg_cards (set_id, lang);
 
+-- Compact since 021: WITHOUT ROWID, keyed in the chart query's order.
 CREATE TABLE ptcg_price_history (
-  card_id      text not null,
-  source       text not null,   -- 'cardmarket' | 'tcgplayer'
-  variant      text not null,   -- 'normal' | 'reverseHolofoil' | 'holofoil' | etc.
-  recorded_at  integer not null,
-  price_usd    real,
-  price_eur    real,
-  primary key (card_id, source, variant, recorded_at)
-);
-
-CREATE INDEX ptcg_price_history_card on ptcg_price_history (card_id, recorded_at desc);
+  card_id      TEXT NOT NULL,
+  source       TEXT NOT NULL,
+  variant      TEXT NOT NULL,
+  recorded_at  INTEGER NOT NULL,
+  price_usd    REAL,
+  price_eur    REAL,
+  PRIMARY KEY (card_id, recorded_at, source, variant)
+) WITHOUT ROWID;
 
 CREATE TABLE ptcg_backfill_cursor (
   source TEXT PRIMARY KEY,
