@@ -268,6 +268,9 @@ export function gate() {
 
     await touchLastUsed(c, hash);
     c.set('caller', 'key');
+    // refresh=1 (cache purge + full-table rebuild) is admin-only, see
+    // wantsRefresh in edgeCache.js. Legacy env-var keys never get it.
+    c.set('admin', hasScope(keyRow.scopes, 'admin'));
     await next();
   };
 }

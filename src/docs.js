@@ -243,7 +243,6 @@ export function registerDocsRoutes(app) {
               '**Recommended bootstrap endpoint.** Returns every card in the slim shape (drops effect text, image URLs, set membership, TCGPlayer IDs) — roughly 80% smaller than `/cards/all`. Use `/cards/{card_id}` to hydrate the heavy fields when a user opens a card.\n\n' +
               'Edge-cached for 1 hour with 24-hour stale-while-revalidate. **Clients should also cache locally for 7+ days** to stay well under the daily quota. Requires `optcg` scope.',
             parameters: [
-              { name: 'refresh', in: 'query', schema: { type: 'string', enum: ['1'] }, description: 'Set to `1` to bypass the edge cache (debug/ops use only — counts against your daily quota).' },
             ],
             responses: {
               200: {
@@ -266,7 +265,6 @@ export function registerDocsRoutes(app) {
             description:
               'Every card in the full shape (heavy — ~5x the size of `/cards/index`). Prefer `/cards/index` for routine sync; this endpoint exists for debugging and one-off bulk exports. Edge-cached identically. Requires `optcg` scope.',
             parameters: [
-              { name: 'refresh', in: 'query', schema: { type: 'string', enum: ['1'] }, description: 'Bypass edge cache.' },
             ],
             responses: {
               200: {
@@ -468,7 +466,6 @@ export function registerDocsRoutes(app) {
               '**Recommended bootstrap endpoint for Pokémon.** Returns every card for the chosen language in slim shape. Edge-cached for 1h + 24h stale-while-revalidate. Cache locally for 7+ days. JA queries auto-join EN names for latin-script search. Requires `ptcg` scope.',
             parameters: [
               { name: 'lang', in: 'query', schema: { type: 'string', enum: ['en', 'ja', 'zh-cn', 'zh-tw'], default: 'en' } },
-              { name: 'refresh', in: 'query', schema: { type: 'string', enum: ['1'] }, description: 'Bypass edge cache.' },
             ],
             responses: {
               200: {

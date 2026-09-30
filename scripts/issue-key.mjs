@@ -10,14 +10,16 @@
 //   node scripts/issue-key.mjs --owner "Name" [--contact "..."] [--notes "..."] [--tier standard|partner] [--scopes "optcg,ptcg"]
 //
 // Default scope is 'optcg' only. Pass --scopes "optcg,ptcg" to also
-// grant Pokemon TCG endpoint access. Public paths (/, /docs, image
-// proxies) never check scopes regardless.
+// grant Pokemon TCG endpoint access. Add 'admin' only for your own
+// maintenance key: it lets refresh=1 purge caches and force full-table
+// D1 rebuilds. Public paths (/, /docs, image proxies) never check scopes
+// regardless.
 
 import { parseArgs } from 'node:util';
 import { webcrypto } from 'node:crypto';
 import { d1Execute, sqlLit } from './_d1.mjs';
 
-const VALID_SCOPES = new Set(['optcg', 'ptcg']);
+const VALID_SCOPES = new Set(['optcg', 'ptcg', 'admin']);
 
 const { values } = parseArgs({
   options: {

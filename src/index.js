@@ -24,6 +24,8 @@ app.use('*', cors({
   },
   allowMethods: ['GET', 'HEAD', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'X-API-Key'],
+  // Lets browser clients back off on a 429 (Retry-After) and see cache hits.
+  exposeHeaders: ['Retry-After', 'X-Cache'],
 }));
 
 app.use('*', gate());

@@ -11,11 +11,11 @@ database_id = "111dd49b-f7ec-472b-b23f-5b2191edb9ce"
 binding = "IMAGES"
 bucket_name = "optcg-images"
 
-# Required secret (set via `npx wrangler secret put API_KEYS`):
-#   API_KEYS — comma-separated list of valid api keys, e.g.,
-#   "abc123def456,ghi789jkl012". Required only for non-browser callers
-#   (curl, server-to-server). Browser callers go through the CORS
-#   Origin allowlist in src/auth.js and don't need a key.
+# Keys live in D1 (api_keys, see scripts/issue-key.mjs). The optional
+# API_KEYS secret is the legacy comma-separated fallback, still honoured by
+# src/auth.js (with optcg,ptcg scopes, never admin) until it's removed.
+# Browser callers go through the Origin allowlist in src/auth.js and don't
+# need a key.
 
 # Per-API-key rate limit. GA Sept 2025, free-tier compatible.
 # 300 req/min per X-API-Key. Daily 100k cap lives in src/auth.js
@@ -36,6 +36,18 @@ name = "RL_IP"
 type = "ratelimit"
 namespace_id = "1002"
 simple = { limit = 1500, period = 60 }
+
+# Stricter per-IP limit on the cache misses that scan whole tables (/cards
+# searches without set_id, unfiltered /artwork, /artwork/gallery): each costs
+# ~5-10k D1 rows, so 1500/min from one IP could spend the 5M/day read budget
+# in under a minute. No first-party page issues more than a few per minute
+# (OPBindr searches locally; OPCanvs only pages the gallery as you scroll).
+# See isHeavyMiss in src/edgeCache.js.
+[[unsafe.bindings]]
+name = "RL_IP_HEAVY"
+type = "ratelimit"
+namespace_id = "1003"
+simple = { limit = 60, period = 60 }
 
 # Usage alert cron — runs every 6 hours and posts to Discord when any
 # active key crosses 80% of its daily quota. See src/cron.js.
