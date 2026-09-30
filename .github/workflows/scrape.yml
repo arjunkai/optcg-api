@@ -142,6 +142,20 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-manual-prices.js
 
+      # Post-import sanity audit (read-only). Flags hard-ceiling phantoms
+      # (> $10k — the 2026-06-11 $87,500 dotgg bug shape), high-value tcg_id
+      # collisions (one product stamped on >1 card), and class-median price
+      # outliers from non-authoritative sources. Writes findings to the run
+      # summary. continue-on-error so a critical finding flags the step red
+      # without killing the cache-purge/notify steps below. No Discord — see
+      # scripts/audit_prices.py header.
+      - name: Audit imported prices
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m scripts.audit_prices
+
       # Coverage snapshot — same pattern as ptcg-refresh.yml, so silently-
       # failing sources show up in the workflow summary instead of hiding
       # behind continue-on-error.
@@ -160,6 +174,16 @@ jobs:
           echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
           echo "## OPTCG coverage" >> "$GITHUB_STEP_SUMMARY"
           echo "Priced: $PRICED / $TOTAL" >> "$GITHUB_STEP_SUMMARY"
+
+      # Drop the Worker's R2 snapshots of the bulk index routes so the new
+      # data serves right away (src/snapshot.js; they'd otherwise wait out a
+      # 6h TTL). The zone purge below is a no-op on workers.dev.
+      - name: Purge Worker R2 snapshots
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/purge-snapshots.mjs
 
       - name: Purge Cloudflare edge cache
         continue-on-error: true
