@@ -23,7 +23,8 @@ function jsonResponse(obj, status = 200) {
     status,
     headers: {
       'Content-Type': 'application/json',
-      'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+      // Errors (bad lang, unknown card) must not stick in browsers for an hour.
+      'Cache-Control': status === 200 ? 'public, max-age=3600, stale-while-revalidate=86400' : 'no-store',
     },
   });
 }
@@ -224,14 +225,23 @@ export function registerPokemonCardRoutes(app) {
   app.get('/pokemon/cards/all', async (c) => {
     const lang = (c.req.query('lang') || 'en').toLowerCase();
     if (!VALID_LANGS.has(lang)) return jsonResponse({ error: 'invalid lang' }, 400);
-    return serveSnapshot(c, `pokemon-all-${lang}-v1`, async () => {
+    // v2 (2026-09-30): fresh non-null D1 fields (image_high, pricing, ...)
+    //   now win over the raw TCGdex blob (v1 let the import-time raw values
+    //   override every later backfill).
+    return serveSnapshot(c, `pokemon-all-${lang}-v2`, async () => {
       const { results } = await c.env.DB.prepare(`
         SELECT * FROM ptcg_cards WHERE lang = ? ORDER BY set_id, local_id
       `).bind(lang).all();
       const data = (results || []).map(row => {
         const slim = rowToSlim(row);
         const raw = row.raw ? JSON.parse(row.raw) : {};
-        return { ...slim, ...raw };
+        // Fresh D1 values win, but a column D1 never filled (null) keeps
+        // the raw value instead of blanking it.
+        const merged = { ...raw };
+        for (const [k, v] of Object.entries(slim)) {
+          if (v != null || !(k in merged)) merged[k] = v;
+        }
+        return merged;
       });
       return { count: data.length, data };
     });
