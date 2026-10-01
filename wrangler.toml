@@ -12,8 +12,9 @@ binding = "IMAGES"
 bucket_name = "optcg-images"
 
 # Keys live in D1 (api_keys, see scripts/issue-key.mjs). The optional
-# API_KEYS secret is the legacy comma-separated fallback, still honoured by
-# src/auth.js (with optcg,ptcg scopes, never admin) until it's removed.
+# API_KEYS secret is the legacy comma-separated fallback; src/auth.js now
+# refuses legacy env-var keys (401), so API_KEYS can be deleted once nothing
+# uses it.
 # Browser callers go through the Origin allowlist in src/auth.js and don't
 # need a key.
 

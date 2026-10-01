@@ -79,7 +79,7 @@ const sql = `INSERT INTO api_keys (key_hash, key_prefix, owner_name, owner_conta
 if (!exemptFromPolicy) {
   let active = 0;
   try {
-    const rows = d1Query(`SELECT COUNT(*) AS n FROM api_keys WHERE status = 'active' AND tier = ${sqlLit(values.tier)} AND scopes NOT LIKE '%admin%' AND scopes NOT LIKE '%firstparty%';`);
+    const rows = d1Query(`SELECT COUNT(*) AS n FROM api_keys WHERE status = 'active' AND tier = ${sqlLit(values.tier)} AND instr(scopes, 'admin') = 0 AND instr(scopes, 'firstparty') = 0;`);
     active = rows[0]?.n ?? 0;
   } catch (err) {
     console.error(err.message);

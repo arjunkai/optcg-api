@@ -71,6 +71,19 @@ test('UTC midnight: old tail to old day, new day from zero', async () => {
   assert.equal(getCount(d1, P, DAY), 10);
 });
 
+test('a failing flush during rollover does not throw or touch the new day', async () => {
+  const { d1, ctx, clock, wu } = setup(`${DAY}T23:59:50Z`);
+  const r = createRequestCounter({ now: clock.now });
+  for (let i = 0; i < 10; i++) await r.add(d1, P, wu);
+  d1.failWhen = (sql) => sql.startsWith('INSERT');
+  clock.set('2026-10-02T00:00:01Z');
+  assert.equal(await r.add(d1, P, wu), 1);
+  await ctx.drain();
+  d1.failWhen = null;
+  assert.equal(await r.add(d1, P, wu), 2, 'new day counts only its own requests');
+  assert.equal(getCount(d1, P, DAY), 0);
+});
+
 test('failed flush is put back; failed reads keep counting; no DB works', async () => {
   const { d1, ctx, clock, wu } = setup();
   const r = createRequestCounter({ now: clock.now });

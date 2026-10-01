@@ -25,7 +25,7 @@ Live: `https://optcg-api.arjunbansal-ai.workers.dev`  ·  Docs: `/docs`  ·  Ope
 - `src/usage.js` — batched daily request counters per key, and the exact atomic unit meter (`INSERT … RETURNING`) for costly cache misses. Counters live in `api_key_usage` (`opt_*` requests, `u:opt_*` key units, `u:outside`).
 - `src/edgeCache.js` `unitsFor` — D1 units per cache miss; every gated route needs a rule (`tests/unit-weights.test.mjs`).
 - Scopes: `firstparty` (Arjun's services, e.g. opbindr-bot) and `admin` skip daily caps and units. Legacy `API_KEYS` env-var keys are refused.
-- **Automated agents must never run `npm run key:*` or anything that imports `scripts/_d1.mjs`** — they write to the production database. `_d1.mjs` refuses without `OPTCG_ALLOW_REMOTE=1`, which only `scripts/remote.mjs` sets after a person types `prod` in an interactive terminal. `scripts/import-*.js`, `purge-snapshots.mjs` and the Python backfills still run `wrangler --remote` directly.
+- **Automated agents must never run `npm run key:*` or anything that imports `scripts/_d1.mjs`** — they write to the production database. `_d1.mjs` refuses unless `scripts/remote.mjs` unlocks it after a person types `prod` in an interactive terminal. `scripts/import-*.js`, `purge-snapshots.mjs` and the Python backfills still run `wrangler --remote` directly.
 - `src/db.js` — row → JSON normalization (handles JSON-encoded columns)
 - `schema.sql` — full schema snapshot
 - `migrations/` — numbered D1 migrations

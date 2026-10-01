@@ -36,7 +36,7 @@ test('limiter reads alone stay under 3% of 5M', () => {
 });
 
 test('worst-case limiter writes stay under 30% of 100k', () => {
-  const keyCharges = 2 * (OUTSIDE_UNITS_DAILY / MIN_CHARGED_UNITS) + KEYS;      // key + outside row per charged miss, + one refused write per key
+  const keyCharges = 2 * (OUTSIDE_UNITS_DAILY / MIN_CHARGED_UNITS) + KEYS * ISOLATES;      // key + outside row per charged miss, + each isolate writes once after the cap
   const requestFlushes = Math.min(sum((t) => t.daily),                          // each flush carries >= 1 request
     sum((t) => t.daily) / 25 + KEYS * ISOLATES_PER_KEY * FIVE_MIN);             // batches + 5-minute time flushes
   const lastUsed = KEYS * ISOLATES * 4;                                         // once per 6h per key per colo

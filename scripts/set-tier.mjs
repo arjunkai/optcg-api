@@ -14,8 +14,8 @@ if (!values.prefix || !values.tier) {
   console.error(`usage: npm run key:set-tier -- --prefix opt_xxxxxxxx --tier ${TIER_NAMES.join('|')}`);
   process.exit(1);
 }
-if (!values.prefix.startsWith('opt_')) {
-  console.error('Invalid prefix: must start with opt_');
+if (!/^opt_[A-Za-z0-9_-]{8}$/.test(values.prefix)) {
+  console.error('Invalid prefix: expected opt_ followed by 8 characters (see npm run key:list)');
   process.exit(1);
 }
 if (!TIER_NAMES.includes(values.tier)) {
@@ -24,7 +24,7 @@ if (!TIER_NAMES.includes(values.tier)) {
 }
 
 try {
-  const rows = d1Query(`SELECT COUNT(*) AS n FROM api_keys WHERE status = 'active' AND tier = ${sqlLit(values.tier)} AND key_prefix != ${sqlLit(values.prefix)} AND scopes NOT LIKE '%admin%' AND scopes NOT LIKE '%firstparty%';`);
+  const rows = d1Query(`SELECT COUNT(*) AS n FROM api_keys WHERE status = 'active' AND tier = ${sqlLit(values.tier)} AND key_prefix != ${sqlLit(values.prefix)} AND instr(scopes, 'admin') = 0 AND instr(scopes, 'firstparty') = 0;`);
   if ((rows[0]?.n ?? 0) >= KEY_POLICY[values.tier]) {
     console.error(`Key policy: at most ${KEY_POLICY[values.tier]} active ${values.tier} keys (src/limits.js KEY_POLICY).`);
     process.exit(1);

@@ -37,7 +37,7 @@ export function createRequestCounter({
     s.lastFlushAt = t;
     waitUntil(
       db.prepare(FLUSH_SQL).bind(name, day, delta, t).run()
-        .catch(() => { if (s.day === day) s.pending += delta; })
+        .catch(() => { if (counters.get(name) === s) s.pending += delta; })
     );
   }
 

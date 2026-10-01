@@ -23,7 +23,10 @@ test('issue-key accepts the firstparty scope in validation, then refuses product
 
 test('set-tier validates, then refuses production', () => {
   assert.match(run('scripts/set-tier.mjs', []).stderr, /usage/);
-  assert.match(run('scripts/set-tier.mjs', ['--prefix', 'abc', '--tier', 'free']).stderr, /must start with opt_/);
+  assert.match(run('scripts/set-tier.mjs', ['--prefix', 'abc', '--tier', 'free']).stderr, /Invalid prefix: expected opt_ followed by 8 characters/);
+  const inj = run('scripts/set-tier.mjs', ['--prefix', 'opt_x" & calc & "', '--tier', 'partner']);
+  assert.equal(inj.status, 1);
+  assert.match(inj.stderr, /Invalid prefix/);
   assert.match(run('scripts/set-tier.mjs', ['--prefix', 'opt_aaaaaaaa', '--tier', 'gold']).stderr, /Invalid tier/);
   assert.match(run('scripts/set-tier.mjs', ['--prefix', 'opt_aaaaaaaa', '--tier', 'partner']).stderr, /Refusing/);
 });
