@@ -40,7 +40,7 @@ app.get('/', (c) => {
     name: 'OPTCG API',
     version: '1.0.0',
     docs: '/docs',
-    access: 'mailto:arjunkaibansal@gmail.com',
+    access: 'https://forms.gle/56bcJgdKKSVRzjtA7',
   });
 });
 
