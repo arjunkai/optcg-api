@@ -298,7 +298,8 @@ def main() -> None:
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     if out.returncode != 0:
-        print("D1 query failed:", (out.stderr or "")[:500])
+        # The error is at the end; the start is wrangler's config banner.
+        print("D1 query failed:", ((out.stderr or "") + (out.stdout or ""))[-1500:])
         sys.exit(1)
     start = (out.stdout or "").find("[")
     rows = json.loads(out.stdout[start:])[0]["results"]
