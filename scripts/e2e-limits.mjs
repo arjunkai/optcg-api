@@ -53,23 +53,25 @@ for (const [name, [raw, tier, scopes]] of Object.entries(KEYS)) {
 }
 rows.push(`INSERT INTO api_key_usage (api_key, day, count, updated_at) VALUES ('${pre('free')}', '${day}', 498, 0);`);
 rows.push(`INSERT INTO api_key_usage (api_key, day, count, updated_at) VALUES ('u:${pre('standard')}', '${day}', 190000, 0);`);
-localSql(rows.join('\n'));
+try {
+  localSql(rows.join('\n'));
 
-check('no key -> 401', (await get('/sets')).status === 401);
-check('unknown key -> 401', (await get('/sets', { 'x-api-key': 'opt_nope' })).status === 401);
-const s = await get('/sets', as('standard'));
-check('standard -> 200, Limit-Day 2000', s.status === 200 && s.headers.get('x-ratelimit-limit-day') === '2000', `${s.status} ${s.headers.get('x-ratelimit-limit-day')}`);
-check('free 499th -> 200', (await get('/sets', as('free'))).status === 200);
-check('free 500th -> 200', (await get('/sets', as('free'))).status === 200);
-const f3 = await get('/sets', as('free'));
-check('free 501st -> 429 daily_quota_exceeded', f3.status === 429 && f3.body?.error === 'daily_quota_exceeded', JSON.stringify(f3.body));
-const h = await get(`/cards?name=e2e${run}`, as('standard'));
-check('standard heavy search past its units -> 429 daily_quota_exceeded', h.status === 429 && h.body?.error === 'daily_quota_exceeded', JSON.stringify(h.body));
-const b = await get(`/cards?name=e2ebot${run}`, as('bot'));
-check('firstparty heavy search -> 200, no day header', b.status === 200 && b.headers.get('x-ratelimit-limit-day') === null, `${b.status}`);
-check('browser origin -> 200', (await get('/sets', { origin: 'https://opbindr.com' })).status === 200);
-check('public /healthz -> 200', (await get('/healthz')).status === 200);
-
-localSql(`DELETE FROM api_keys WHERE owner_name LIKE 'e2e %'; DELETE FROM api_key_usage WHERE api_key LIKE 'opt_e2e%' OR api_key LIKE 'u:opt_e2e%' OR api_key = 'u:outside';`);
+  check('no key -> 401', (await get('/sets')).status === 401);
+  check('unknown key -> 401', (await get('/sets', { 'x-api-key': 'opt_nope' })).status === 401);
+  const s = await get('/sets', as('standard'));
+  check('standard -> 200, Limit-Day 2000', s.status === 200 && s.headers.get('x-ratelimit-limit-day') === '2000', `${s.status} ${s.headers.get('x-ratelimit-limit-day')}`);
+  check('free 499th -> 200', (await get('/sets', as('free'))).status === 200);
+  check('free 500th -> 200', (await get('/sets', as('free'))).status === 200);
+  const f3 = await get('/sets', as('free'));
+  check('free 501st -> 429 daily_quota_exceeded', f3.status === 429 && f3.body?.error === 'daily_quota_exceeded', JSON.stringify(f3.body));
+  const h = await get(`/cards?name=e2e${run}`, as('standard'));
+  check('standard heavy search past its units -> 429 daily_quota_exceeded', h.status === 429 && h.body?.error === 'daily_quota_exceeded', JSON.stringify(h.body));
+  const b = await get(`/cards?name=e2ebot${run}`, as('bot'));
+  check('firstparty heavy search -> 200, no day header', b.status === 200 && b.headers.get('x-ratelimit-limit-day') === null, `${b.status}`);
+  check('browser origin -> 200', (await get('/sets', { origin: 'https://opbindr.com' })).status === 200);
+  check('public /healthz -> 200', (await get('/healthz')).status === 200);
+} finally {
+  localSql(`DELETE FROM api_keys WHERE owner_name LIKE 'e2e %'; DELETE FROM api_key_usage WHERE api_key LIKE 'opt_e2e%' OR api_key LIKE 'u:opt_e2e%' OR (api_key = 'u:outside' AND day = '${day}');`);
+}
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);
