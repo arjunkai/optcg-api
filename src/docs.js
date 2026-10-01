@@ -673,6 +673,7 @@ export function registerDocsRoutes(app) {
     <div class="keyholder">
       <p><strong>Already have a key?</strong> Fetch the OpenAPI spec with your <code>X-API-Key</code> header and import it into any OpenAPI viewer (Scalar, Swagger UI, Postman, Insomnia).</p>
       <p><code>curl -H "X-API-Key: opt_your_key" https://optcg-api.arjunbansal-ai.workers.dev/openapi.json</code></p>
+      <p>Keys come in tiers with per-minute and daily limits. For a full catalog sync use <code>/cards/index</code> (one request) rather than paging through <code>/cards</code>.</p>
     </div>
   </div>
 </body>
