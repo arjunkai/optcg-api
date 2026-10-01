@@ -181,6 +181,34 @@ Each higher-priority source skips rows already populated by a higher tier on re-
 
 ---
 
+## Access and limits
+
+The deployed API at `https://optcg-api.arjunbansal-ai.workers.dev` isn't open to the public. OPBindr and OPCanvs call it from the browser; everyone else needs an API key.
+
+- **Getting a key.** Non-commercial development access is available on request. Email arjunkaibansal@gmail.com with your project, what you're building, which games you need (One Piece, Pokémon), and roughly how many requests a day you expect.
+- **Using a key.** Send it as the `X-API-Key` header. Keys are scoped: `optcg` for One Piece routes, `ptcg` for `/pokemon/*`.
+- **Limits** depend on the key's tier. Keys are `standard` unless agreed otherwise. Daily limits reset at 00:00 UTC.
+
+  | Tier | Per minute | Per day | Uncached searches per minute |
+  |---|---|---|---|
+  | `standard` | 60 | 2,000 | 10 |
+  | `partner` | 120 | 10,000 | 30 |
+
+  Each key also has a daily budget for uncached database work. Searches like `/cards?name=…` cost the most; single cards, set lists and cache hits cost nothing. For a full catalog, use `/cards/index` (one request, served from a snapshot) instead of paging through `/cards`. Responses carry `X-RateLimit-Limit-Day` and `X-RateLimit-Remaining-Day` (approximate). Revoking a key or changing its tier takes up to 5 minutes.
+- **When you hit a limit** you get `429`, a `Retry-After` header, and `{ error, tier, limit, detail }`:
+
+  | `error` | Meaning |
+  |---|---|
+  | `rate_limited` | Per-minute limit |
+  | `heavy_rate_limited` | Uncached-search limit |
+  | `daily_quota_exceeded` | Your key's daily requests or database budget |
+  | `outside_daily_capacity` | All API keys together used today's database share; retry after 00:00 UTC |
+  | `too_many_key_attempts` | Too many unknown keys from your IP |
+
+- **Public endpoints.** `/`, `/docs`, `/healthz`, `/images/*`, and `/pokemon/images/*` need no key. `/openapi.json` needs one.
+
+---
+
 ## Running Locally
 
 ```bash
@@ -202,16 +230,4 @@ Open `http://localhost:8787/docs`
 
 **Card images.** Card art is © Eiichiro Oda / Shueisha, Toei Animation, Bandai Namco Entertainment Inc. The `/images/*` endpoint is a proxy. No rights to the images are claimed by this project.
 
-**Deployed API access.** See [Access and limits](#access-and-limits) below.
-
----
-
-## Access and limits
-
-The deployed API at `https://optcg-api.arjunbansal-ai.workers.dev` is not open to the public. OPBindr and OPCanvs (opbindr.com, opcanvs.com) call it directly from the browser; everyone else needs an API key.
-
-- **Getting a key.** Non-commercial development access is available on request. Email arjunkaibansal@gmail.com with your project name, what you're building, which games you need (One Piece, Pokémon), and roughly how many requests a day you expect.
-- **Using a key.** Send it as the `X-API-Key` header on every request. Keys are scoped: `optcg` for the One Piece routes, `ptcg` for `/pokemon/*`.
-- **Limits per key.** 300 requests per minute and 100,000 requests per day (resets at 00:00 UTC). Over either limit you get `429` with a `Retry-After` header. Responses are cached at the edge, so for full syncs use `/cards/index` (or `/pokemon/cards/index`) rather than paging through `/cards`.
-- **Errors.** Browser callers from other sites get `403 origin not allowed`. Requests without a valid key get `401 api key required`. A key without the right scope gets `403 scope_required`.
-- **Public endpoints.** `/`, `/docs`, `/healthz`, `/images/*`, and `/pokemon/images/*` need no key, so the API stays discoverable and binder thumbnails shared on Discord or Twitter still render. `/openapi.json` needs a key: fetch it with your key and open it in Scalar, Swagger UI, Postman, or Insomnia.
+**Deployed API access.** `https://optcg-api.arjunbansal-ai.workers.dev` is gated to opbindr.com and opcanvs.com origins. Browser callers from non-allowed origins receive `403 origin not allowed`; non-browser callers without a valid `X-API-Key` receive `401 api key required`. Public endpoints (`/`, `/docs`, `/healthz`, and `/images/*`) stay open (`/openapi.json` needs a key) so the API stays discoverable and binder thumbnails shared on Discord or Twitter still render. See [Access and limits](#access-and-limits).

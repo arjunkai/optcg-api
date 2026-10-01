@@ -16,6 +16,10 @@
 // they get the cached copy — otherwise a loop of refresh=1 requests would
 // force a D1 query every time.
 
+import { OUTSIDE_UNITS_DAILY, secondsUntilUtcMidnight } from './limits.js';
+import { createUnitMeter } from './usage.js';
+import { tooMany, unavailable } from './auth.js';
+
 // Routes that manage their own cache (R2 snapshot + edge, see snapshot.js).
 const SELF_CACHED = new Set([
   '/cards/all',
@@ -71,6 +75,39 @@ export function isHeavyMiss(pathname, url) {
   // Ordered by a CASE expression, so every page sorts the whole table.
   if (pathname === '/artwork/gallery') return true;
   return false;
+}
+
+// D1 cost units per cache miss (about the rows the route's query reads),
+// charged to API keys before the route runs so outside keys can't exhaust the
+// Free plan's 5M rows/day. Light routes (a few indexed rows, or answered from
+// an in-isolate snapshot) cost 0. tests/unit-weights.test.mjs requires a rule
+// for every gated route. Browser callers are not charged (Phase 2 covers them).
+const SNAPSHOT_ROUTES = new Set(['/cards/all', '/cards/index', '/pokemon/cards/all', '/pokemon/cards/index', '/representatives']);
+const HEAVY_UNITS = 15_000;
+const UNIT_RULES = [
+  [/^\/openapi\.json$/, () => 0],
+  [/^\/cards$/, (u) => (u.searchParams.get('set_id') ? 1_000 : HEAVY_UNITS)],
+  [/^\/artwork$/, (u) => (u.searchParams.get('artist') || u.searchParams.get('character') ? 1_000 : HEAVY_UNITS)],
+  [/^\/artwork\/gallery$/, () => 1_000],
+  [/^\/characters$/, () => 0], // answered from the in-isolate roster snapshot (canvs.js)
+  [/^\/(illustrators|products)$/, () => 3_000],
+  [/^\/(illustrators|characters)\/[^/]+$/, () => 1_000],
+  [/^\/(pokemon\/)?sets\/[^/]+\/cards$/, () => 1_000],
+  [/^\/(pokemon\/)?cards\/[^/]+\/price-history$/, (u) => (u.searchParams.get('range') === 'all' ? 1_000 : 500)],
+  [/^\/(pokemon\/)?cards\/[^/]+$/, () => 0],
+  [/^\/(pokemon\/)?sets$/, () => 0],
+];
+export const DEFAULT_UNITS = 3_000;
+export const MIN_CHARGED_UNITS = 500;
+
+export function explicitUnits(pathname, url) {
+  if (SNAPSHOT_ROUTES.has(pathname)) return 0;
+  for (const [re, fn] of UNIT_RULES) if (re.test(pathname)) return fn(url);
+  return null;
+}
+
+export function unitsFor(pathname, url) {
+  return explicitUnits(pathname, url) ?? DEFAULT_UNITS;
 }
 
 const EDGE_TTL_S = 3600;   // how long a colo keeps a response
@@ -149,7 +186,47 @@ export async function limitBrowser(c, { heavy = false } = {}) {
   return null;
 }
 
-export function edgeCache() {
+// Cache-miss limits. Keys: the tier heavy binding, then D1 units against the
+// key's cap and the outside share (exempt keys skip units; a failed charge
+// is a 503). Browsers: today's per-IP limits only.
+export async function limitCaller(c, { heavy = false, units = 0, meter } = {}) {
+  if (c.get('caller') !== 'key') return limitBrowser(c, { heavy });
+  const tier = c.get('tier');
+  const prefix = c.get('keyPrefix');
+  const resetIn = () => secondsUntilUtcMidnight(Date.now());
+  if (heavy && tier) {
+    const binding = c.env?.[tier.heavyBinding];
+    if (binding) {
+      try {
+        const { success } = await binding.limit({ key: prefix });
+        if (!success) {
+          return tooMany(c, 'heavy_rate_limited', tier, tier.heavyPerMinute,
+            `too many uncached searches for this key (${tier.heavyPerMinute}/min)`, 60);
+        }
+      } catch { /* fail open */ }
+    }
+  }
+  if (units <= 0 || c.get('exempt') || !meter || !tier) return null;
+  const outsideFull = () => tooMany(c, 'outside_daily_capacity', tier, OUTSIDE_UNITS_DAILY,
+    'all API keys together used today\'s database share; resets at 00:00 UTC', resetIn());
+  if (meter.isExhausted('u:outside')) return outsideFull();
+  const db = c.env?.DB;
+  try {
+    const mine = await meter.charge(db, `u:${prefix}`, units, tier.dailyUnits);
+    if (!mine.ok) {
+      return tooMany(c, 'daily_quota_exceeded', tier, tier.dailyUnits,
+        `daily database budget reached (${tier.dailyUnits} units/day)`, resetIn());
+    }
+    const all = await meter.charge(db, 'u:outside', units, OUTSIDE_UNITS_DAILY);
+    if (!all.ok) return outsideFull();
+  } catch (err) {
+    console.error('unit charge failed:', err?.message || err);
+    return unavailable(c);
+  }
+  return null;
+}
+
+export function edgeCache({ meter = createUnitMeter() } = {}) {
   return async (c, next) => {
     const caller = c.get('caller');
     const url = new URL(c.req.url);
@@ -179,7 +256,7 @@ export function edgeCache() {
       }
     }
 
-    const blocked = await limitBrowser(c, { heavy: isHeavyMiss(path, url) });
+    const blocked = await limitCaller(c, { heavy: isHeavyMiss(path, url), units: unitsFor(path, url), meter });
     if (blocked) return blocked;
 
     await next();

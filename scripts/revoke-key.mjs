@@ -7,7 +7,7 @@
 // on the next request (no Worker redeploy needed).
 //
 // Usage:
-//   node scripts/revoke-key.mjs opt_aBcDeFgH
+//   npm run key:revoke -- opt_aBcDeFgH
 
 import { d1Execute, sqlLit } from './_d1.mjs';
 
@@ -18,8 +18,8 @@ if (!prefix) {
   process.exit(1);
 }
 
-if (!prefix.startsWith('opt_')) {
-  console.error('Invalid prefix: must start with opt_');
+if (!/^opt_[A-Za-z0-9_-]{8}$/.test(prefix)) {
+  console.error('Invalid prefix: expected opt_ followed by 8 characters (see npm run key:list)');
   process.exit(1);
 }
 

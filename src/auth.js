@@ -1,29 +1,17 @@
-// Origin + API key gate for the OPTCG API, with per-key rate limiting.
+// Origin + API key gate for the OPTCG API, sized for the Workers Free plan.
+// Design: docs/superpowers/specs/2026-10-01-api-limits-phase1-design.md
 //
-// CORS Origin allowlist: only OPBindr frontend origins get full data access.
-// Anyone else either supplies a valid API key (X-API-Key header) or gets 403/401.
-//
-// Public paths (root, docs, OpenAPI, image proxy) bypass the gate so the API
-// stays discoverable and binder thumbnails shared on Discord/Twitter still
-// render cleanly.
-//
-// API key storage:
-//   * Keys live in the D1 `api_keys` table (migration 013). Only the
-//     SHA-256 hash is stored. Issuance via scripts/issue-key.mjs prints
-//     the raw key once and never again.
-//   * `key_prefix` (first 12 chars: `opt_xxxxxxxx`) is what we use as the
-//     identifier for rate limiting and the api_key_usage daily counter.
-//     Safe to log / display, not enough to authenticate alone.
-//   * env.API_KEYS (legacy comma-separated env var) still works as a
-//     transition fallback; logs a warning when used. Remove once all
-//     active keys are migrated into D1.
-//
-// Rate limiting for X-API-Key callers:
-//   * 300 req/min via the native Workers Rate Limit binding (RL_MINUTE).
-//   * 100k req/day via Cache API counter, lazy-flushed to D1 (api_key_usage)
-//     every 60 requests so the D1 free-tier 100k-write budget holds.
-// Browser (Origin) callers are limited per IP on edge-cache misses instead —
-// see src/edgeCache.js.
+// Browser callers on the Origin allowlist need no key; edgeCache.js limits
+// them per IP. Key callers, in order: key cache -> (miss) D1 lookup, with
+// unknown keys consuming a per-IP limiter -> scope -> tier per-minute ->
+// tier daily request cap. 'firstparty' and 'admin' keys keep the per-minute
+// limit but skip the daily cap and are never counted. edgeCache.js charges
+// D1 units for costly cache misses.
+
+import { tierFor, secondsUntilUtcMidnight } from './limits.js';
+import { createKeyCache } from './keyCache.js';
+import { createRequestCounter } from './usage.js';
+import { ipLimitKey } from './edgeCache.js';
 
 const ALLOWED_EXACT = new Set([
   'https://opbindr.com',
@@ -36,65 +24,36 @@ const ALLOWED_EXACT = new Set([
   'http://localhost:4173',
 ]);
 
-// Regex for Cloudflare Pages preview deploys: <branch>.opbindr.pages.dev
-// and OPCanvs preview deploys: <branch>.opcanvs.pages.dev
+// Cloudflare Pages preview deploys.
 const ALLOWED_REGEX = [
   /^https:\/\/[a-z0-9-]+\.opbindr\.pages\.dev$/,
   /^https:\/\/[a-z0-9-]+\.opcanvs\.pages\.dev$/,
 ];
 
-// Path prefixes that bypass the gate entirely. These are the discoverable /
-// public-facing endpoints that need to work without auth. /images/* stays
-// public so binder thumbnails shared on Discord/Twitter render cleanly.
-const PUBLIC_PREFIXES = [
-  '/images/',          // OPTCG image proxy
-  '/pokemon/images/',  // Future PTCG image proxy (Phase 2.2)
-];
+const PUBLIC_PREFIXES = ['/images/', '/pokemon/images/'];
+// /openapi.json is NOT public: it needs a key (src/docs.js serves /docs).
+const PUBLIC_EXACT = new Set(['/', '/docs', '/healthz']);
 
-// Exact public paths. /docs is intentionally public and serves a
-// "request access" landing page rather than the real schema — see
-// src/docs.js. /openapi.json is NOT in this set: it requires a valid
-// X-API-Key so anonymous visitors can't enumerate endpoints, parameters,
-// or response shapes.
-const PUBLIC_EXACT = new Set([
-  '/',
-  '/docs',
-  '/healthz',
-]);
-
-const DAILY_LIMIT = 100_000;
-const DAILY_FLUSH_EVERY = 60;
-const LAST_USED_THROTTLE_S = 60;
+// last_used_at is informational and every D1 write counts against Free's
+// 100k/day, so at most once per 6h per key per colo.
+const LAST_USED_THROTTLE_S = 6 * 3600;
+const IP_BLOCK_MS = 60_000;
 
 function isPublicPath(pathname) {
-  if (PUBLIC_EXACT.has(pathname)) return true;
-  for (const p of PUBLIC_PREFIXES) {
-    if (pathname.startsWith(p)) return true;
-  }
-  return false;
+  return PUBLIC_EXACT.has(pathname) || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
 }
 
-// Also drives the CORS middleware in index.js, so the two allowlists can't
-// drift apart.
+// Also drives the CORS middleware in index.js, so the allowlists can't drift.
 export function isAllowedOrigin(origin) {
   if (!origin) return false;
-  if (ALLOWED_EXACT.has(origin)) return true;
-  for (const r of ALLOWED_REGEX) {
-    if (r.test(origin)) return true;
-  }
-  return false;
+  return ALLOWED_EXACT.has(origin) || ALLOWED_REGEX.some((r) => r.test(origin));
 }
 
 async function sha256Hex(text) {
-  const bytes = new TextEncoder().encode(text);
-  const buf = await crypto.subtle.digest('SHA-256', bytes);
-  const arr = Array.from(new Uint8Array(buf));
-  return arr.map(b => b.toString(16).padStart(2, '0')).join('');
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Look up an active key by its SHA-256 hash. Returns
-// { key_prefix, tier, scopes } or null. Filters status='active' so
-// revoked rows are never honoured.
 async function lookupKey(db, hash) {
   if (!db) return null;
   return await db.prepare(
@@ -102,98 +61,59 @@ async function lookupKey(db, hash) {
   ).bind(hash).first();
 }
 
-// Map a request path to the scope the caller's key must hold.
-// `/pokemon/*` authenticated routes require 'ptcg'; everything else
-// requires 'optcg'. Public paths bypass this check entirely (see
-// isPublicPath above).
 function requiredScope(pathname) {
-  if (pathname.startsWith('/pokemon/')) return 'ptcg';
-  return 'optcg';
+  return pathname.startsWith('/pokemon/') ? 'ptcg' : 'optcg';
 }
 
 function hasScope(scopesStr, required) {
   if (!scopesStr) return false;
-  return scopesStr.split(',').map(s => s.trim()).filter(Boolean).includes(required);
+  return scopesStr.split(',').map((s) => s.trim()).filter(Boolean).includes(required);
 }
 
-function matchEnvVarKey(provided, allKeys) {
-  if (!provided || !allKeys) return false;
-  const keys = allKeys.split(',').map(k => k.trim()).filter(Boolean);
-  return keys.includes(provided);
+export function tooMany(c, error, tier, limit, detail, retryAfterS) {
+  return c.json(
+    { error, tier: tier.name, limit, detail },
+    429,
+    { 'Retry-After': String(retryAfterS), 'Cache-Control': 'no-store' }
+  );
 }
 
-function secondsUntilUtcMidnight() {
-  const now = new Date();
-  const next = new Date(now);
-  next.setUTCHours(24, 0, 0, 0);
-  return Math.ceil((next.getTime() - now.getTime()) / 1000);
+export function unavailable(c) {
+  return c.json(
+    { error: 'temporarily_unavailable', detail: 'usage check failed, retry shortly' },
+    503,
+    { 'Retry-After': '30', 'Cache-Control': 'no-store' }
+  );
 }
 
-// Best-effort per-key daily counter, keyed on the key_prefix (not the
-// raw key). Cache API is per-colo, so a key fanning across many CF data
-// centers can drift slightly over the cap — the D1 flush gives cross-
-// colo visibility on the next minute boundary.
-async function bumpDailyCount(c, prefix) {
-  const today = new Date().toISOString().slice(0, 10);
-  const cacheKey = new Request(`https://rl.local/daily/${encodeURIComponent(prefix)}/${today}`);
-  const cache = caches.default;
-  const cached = await cache.match(cacheKey);
-  let prev = cached ? parseInt(await cached.text(), 10) || 0 : 0;
-  // No counter in this colo (first request here today, or the entry was
-  // evicted): seed from the D1 flush so the cap is enforced across colos
-  // instead of silently restarting at 0. One indexed read per colo per day.
-  if (!cached && c.env?.DB) {
-    try {
-      const row = await c.env.DB.prepare(
-        'SELECT count FROM api_key_usage WHERE api_key = ? AND day = ?'
-      ).bind(prefix, today).first();
-      if (row?.count) prev = row.count;
-    } catch { /* best-effort; fall back to the local count */ }
-  }
-  const count = prev + 1;
-
-  c.executionCtx.waitUntil(cache.put(
-    cacheKey,
-    new Response(String(count), {
-      headers: { 'Cache-Control': 'max-age=86400' },
-    })
-  ));
-
-  if (count % DAILY_FLUSH_EVERY === 0 && c.env?.DB) {
-    c.executionCtx.waitUntil(
-      c.env.DB.prepare(
-        'INSERT INTO api_key_usage (api_key, day, count, updated_at) VALUES (?, ?, ?, ?) ' +
-        'ON CONFLICT(api_key, day) DO UPDATE SET ' +
-        '  count = MAX(api_key_usage.count, excluded.count), ' +
-        '  updated_at = excluded.updated_at'
-      ).bind(prefix, today, count, Date.now()).run().catch(() => {})
-    );
-  }
-
-  return count;
+function tooManyAttempts(c) {
+  return c.json(
+    { error: 'too_many_key_attempts', detail: 'too many unknown API keys from this IP' },
+    429,
+    { 'Retry-After': '60', 'Cache-Control': 'no-store' }
+  );
 }
 
-// Update last_used_at on the api_keys row, throttled to once per
-// LAST_USED_THROTTLE_S seconds per key so we don't burn D1 writes.
 async function touchLastUsed(c, keyHash) {
   if (!c.env?.DB) return;
   const cacheKey = new Request(`https://rl.local/lastused/${keyHash}`);
   const cache = caches.default;
-  const cached = await cache.match(cacheKey);
-  if (cached) return;
+  if (await cache.match(cacheKey)) return;
   c.executionCtx.waitUntil(Promise.all([
     c.env.DB.prepare('UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?')
       .bind(Date.now(), keyHash).run().catch(() => {}),
-    cache.put(cacheKey, new Response('1', {
-      headers: { 'Cache-Control': `max-age=${LAST_USED_THROTTLE_S}` },
-    })),
+    cache.put(cacheKey, new Response('1', { headers: { 'Cache-Control': `max-age=${LAST_USED_THROTTLE_S}` } })),
   ]));
 }
 
-// Hono middleware. Place this BEFORE the route registrations.
-// Returns 403 for disallowed origins, 401 for missing/invalid api keys,
-// 429 for rate-limited keys.
-export function gate() {
+// Options exist for tests; production uses one cache/counter per isolate.
+export function gate({
+  keyCache = createKeyCache(),
+  requests = createRequestCounter(),
+  now = Date.now,
+} = {}) {
+  const blockedIps = new Map(); // ipLimitKey -> blocked-until ms
+
   return async (c, next) => {
     const url = new URL(c.req.url);
     if (isPublicPath(url.pathname)) {
@@ -201,10 +121,6 @@ export function gate() {
       return;
     }
 
-    // Origin is only enforced by browsers — any non-browser client can send
-    // an allowed one. So the browser path is treated as untrusted: no key
-    // needed, but it can't use refresh=1 and its cache misses are rate
-    // limited per IP (see src/edgeCache.js).
     const origin = c.req.header('origin');
     if (origin) {
       if (isAllowedOrigin(origin)) {
@@ -215,62 +131,83 @@ export function gate() {
       return c.json({ error: 'origin not allowed' }, 403);
     }
 
-    // No Origin header — server-to-server caller. Require an API key.
-    const provided = c.req.header('x-api-key');
-    if (!provided) {
-      return c.json({ error: 'api key required' }, 401);
-    }
-    const trimmed = provided.trim();
+    const trimmed = (c.req.header('x-api-key') || '').trim();
+    if (!trimmed) return c.json({ error: 'api key required' }, 401);
     const hash = await sha256Hex(trimmed);
 
-    let keyRow = await lookupKey(c.env?.DB, hash);
-
-    // Transition fallback for keys still in the legacy comma-separated
-    // env var. Remove env.API_KEYS once everything is migrated to D1.
-    // Legacy keys get all scopes for backward compatibility — issue new
-    // scoped keys via issue-key.mjs and revoke env-var keys when done.
-    if (!keyRow && matchEnvVarKey(trimmed, c.env?.API_KEYS)) {
-      console.warn('legacy env-var key used, migrate to D1 (issue-key.mjs)');
-      keyRow = { key_prefix: trimmed.slice(0, 12), tier: 'standard', scopes: 'optcg,ptcg' };
+    let keyRow;
+    const cached = keyCache.get(hash);
+    if (cached) {
+      keyRow = cached.row;
+    } else {
+      const ip = c.req.header('cf-connecting-ip');
+      const ipKey = ip ? ipLimitKey(ip) : null;
+      if (ipKey && (blockedIps.get(ipKey) || 0) > now()) return tooManyAttempts(c);
+      try {
+        keyRow = await lookupKey(c.env?.DB, hash);
+      } catch (err) {
+        console.error('key lookup failed:', err?.message || err);
+        return unavailable(c);
+      }
+      keyCache.set(hash, keyRow ?? null);
+      if (!keyRow && ipKey && c.env?.RL_KEY_LOOKUP) {
+        try {
+          const { success } = await c.env.RL_KEY_LOOKUP.limit({ key: ipKey });
+          if (!success) {
+            if (blockedIps.size > 10_000) blockedIps.clear();
+            blockedIps.set(ipKey, now() + IP_BLOCK_MS);
+            return tooManyAttempts(c);
+          }
+        } catch { /* fail open: still a 401 below */ }
+      }
     }
-
-    if (!keyRow) {
-      return c.json({ error: 'api key required' }, 401);
-    }
+    if (!keyRow) return c.json({ error: 'api key required' }, 401);
 
     const needed = requiredScope(url.pathname);
     if (!hasScope(keyRow.scopes, needed)) {
-      return c.json(
-        { error: 'scope_required', detail: `key does not have ${needed} access` },
-        403
-      );
+      return c.json({ error: 'scope_required', detail: `key does not have ${needed} access` }, 403);
     }
 
-    if (c.env?.RL_MINUTE) {
-      const { success } = await c.env.RL_MINUTE.limit({ key: keyRow.key_prefix });
-      if (!success) {
-        return c.json(
-          { error: 'rate_limited', detail: 'per-minute cap exceeded (300/min)' },
-          429,
-          { 'Retry-After': '60' }
-        );
+    const tier = tierFor(keyRow.tier);
+    const admin = hasScope(keyRow.scopes, 'admin');
+    const exempt = admin || hasScope(keyRow.scopes, 'firstparty');
+    const prefix = keyRow.key_prefix;
+    const db = c.env?.DB;
+    const waitUntil = (p) => c.executionCtx.waitUntil(p);
+
+    const minute = c.env?.[tier.minuteBinding];
+    if (minute) {
+      try {
+        const { success } = await minute.limit({ key: prefix });
+        if (!success) {
+          return tooMany(c, 'rate_limited', tier, tier.perMinute, `per-minute cap exceeded (${tier.perMinute}/min)`, 60);
+        }
+      } catch { /* binding down: the daily cap still applies */ }
+    }
+
+    let used = 0;
+    if (!exempt) {
+      used = await requests.peek(db, prefix, waitUntil);
+      if (used + 1 > tier.daily) {
+        return tooMany(c, 'daily_quota_exceeded', tier, tier.daily,
+          `daily request cap reached (${tier.daily}/day)`, secondsUntilUtcMidnight(now()));
       }
-    }
-
-    const dailyCount = await bumpDailyCount(c, keyRow.key_prefix);
-    if (dailyCount > DAILY_LIMIT) {
-      return c.json(
-        { error: 'daily_quota_exceeded', limit: DAILY_LIMIT, count: dailyCount },
-        429,
-        { 'Retry-After': String(secondsUntilUtcMidnight()) }
-      );
+      await requests.add(db, prefix, waitUntil);
     }
 
     await touchLastUsed(c, hash);
     c.set('caller', 'key');
-    // refresh=1 (cache purge + full-table rebuild) is admin-only, see
-    // wantsRefresh in edgeCache.js. Legacy env-var keys never get it.
-    c.set('admin', hasScope(keyRow.scopes, 'admin'));
+    c.set('admin', admin); // refresh=1 stays admin-only (wantsRefresh)
+    c.set('exempt', exempt);
+    c.set('tier', tier);
+    c.set('keyPrefix', prefix);
     await next();
+
+    if (!exempt) {
+      try {
+        c.res.headers.set('X-RateLimit-Limit-Day', String(tier.daily));
+        c.res.headers.set('X-RateLimit-Remaining-Day', String(Math.max(0, tier.daily - used - 1)));
+      } catch { /* immutable headers */ }
+    }
   };
 }

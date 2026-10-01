@@ -7,19 +7,21 @@
 // recipient. The raw key is never recoverable after this.
 //
 // Usage:
-//   node scripts/issue-key.mjs --owner "Name" [--contact "..."] [--notes "..."] [--tier standard|partner] [--scopes "optcg,ptcg"]
+//   npm run key:issue -- --owner "Name" [--contact "..."] [--notes "..."] [--tier free|standard|partner] [--scopes "optcg,ptcg"]
 //
 // Default scope is 'optcg' only. Pass --scopes "optcg,ptcg" to also
 // grant Pokemon TCG endpoint access. Add 'admin' only for your own
 // maintenance key: it lets refresh=1 purge caches and force full-table
-// D1 rebuilds. Public paths (/, /docs, image proxies) never check scopes
+// D1 rebuilds. Add 'firstparty' for Arjun's own services (opbindr-bot): no
+// daily caps, never counted. Public paths (/, /docs, image proxies) never check scopes
 // regardless.
 
 import { parseArgs } from 'node:util';
 import { webcrypto } from 'node:crypto';
-import { d1Execute, sqlLit } from './_d1.mjs';
+import { d1Execute, d1Query, sqlLit } from './_d1.mjs';
+import { TIER_NAMES, KEY_POLICY } from '../src/limits.js';
 
-const VALID_SCOPES = new Set(['optcg', 'ptcg', 'admin']);
+const VALID_SCOPES = new Set(['optcg', 'ptcg', 'admin', 'firstparty']);
 
 const { values } = parseArgs({
   options: {
@@ -32,7 +34,7 @@ const { values } = parseArgs({
 });
 
 if (!values.owner) {
-  console.error('usage: node scripts/issue-key.mjs --owner "Name" [--contact "..."] [--notes "..."] [--tier standard|partner] [--scopes "optcg,ptcg"]');
+  console.error('usage: node scripts/issue-key.mjs --owner "Name" [--contact "..."] [--notes "..."] [--tier free|standard|partner] [--scopes "optcg,ptcg"]');
   process.exit(1);
 }
 
@@ -47,6 +49,11 @@ if (scopeList.length === 0) {
   console.error('At least one scope is required.');
   process.exit(1);
 }
+if (!TIER_NAMES.includes(values.tier)) {
+  console.error(`Invalid tier: "${values.tier}". Valid tiers: ${TIER_NAMES.join(', ')}`);
+  process.exit(1);
+}
+const exemptFromPolicy = scopeList.includes('admin') || scopeList.includes('firstparty');
 const normalisedScopes = scopeList.join(',');
 
 function generateKey() {
@@ -69,6 +76,21 @@ const now = Date.now();
 
 const sql = `INSERT INTO api_keys (key_hash, key_prefix, owner_name, owner_contact, notes, tier, scopes, status, created_at) VALUES (${sqlLit(keyHash)}, ${sqlLit(keyPrefix)}, ${sqlLit(values.owner)}, ${sqlLit(values.contact ?? null)}, ${sqlLit(values.notes ?? null)}, ${sqlLit(values.tier)}, ${sqlLit(normalisedScopes)}, 'active', ${now});`;
 
+if (!exemptFromPolicy) {
+  let active = 0;
+  try {
+    const rows = d1Query(`SELECT COUNT(*) AS n FROM api_keys WHERE status = 'active' AND tier = ${sqlLit(values.tier)} AND instr(scopes, 'admin') = 0 AND instr(scopes, 'firstparty') = 0;`);
+    active = rows[0]?.n ?? 0;
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
+  if (active >= KEY_POLICY[values.tier]) {
+    console.error(`Key policy: at most ${KEY_POLICY[values.tier]} active ${values.tier} keys (src/limits.js KEY_POLICY). Revoke one or use another tier.`);
+    process.exit(1);
+  }
+}
+
 try {
   d1Execute(sql);
 } catch (err) {
@@ -89,5 +111,5 @@ console.log(`  Tier:     ${values.tier}`);
 console.log(`  Scopes:   ${normalisedScopes}`);
 console.log('---------------------------------------------------------------');
 console.log('  [!] Copy the key now. It will NOT be shown again.');
-console.log(`  To revoke later: node scripts/revoke-key.mjs ${keyPrefix}`);
+console.log(`  To revoke later: npm run key:revoke -- ${keyPrefix}`);
 console.log('===============================================================');

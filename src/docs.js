@@ -14,8 +14,8 @@ export function registerDocsRoutes(app) {
       content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' }, example: { error: 'scope_required', detail: 'key does not have ptcg access' } } },
     };
     const Error429 = {
-      description: 'Per-minute (300/min) or daily (100k/day) limit exceeded. Includes a Retry-After header.',
-      content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' }, example: { error: 'rate_limited', detail: 'per-minute cap exceeded (300/min)' } } },
+      description: 'Rate limit or daily quota exceeded. Includes a Retry-After header. `error` is one of `rate_limited` (per-minute), `heavy_rate_limited` (uncached searches), `daily_quota_exceeded` (the daily requests or database budget of your key), `outside_daily_capacity` (all keys together used the database share for today; retry after 00:00 UTC) or `too_many_key_attempts` (too many unknown keys from your IP).',
+      content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' }, example: { error: 'rate_limited', tier: 'standard', limit: 60, detail: 'per-minute cap exceeded (60/min)' } } },
     };
 
     return c.json({
@@ -32,8 +32,12 @@ export function registerDocsRoutes(app) {
           '- `ptcg` scope grants access to `/pokemon/*` routes.\n' +
           '- A key may hold either or both.\n\n' +
           '## Rate limits\n' +
-          '- **300 requests / minute** per key (Cloudflare native rate limit, returns 429 with `Retry-After: 60`).\n' +
-          '- **100,000 requests / day** per key (UTC midnight reset, returns 429 with `Retry-After` to next midnight).\n' +
+          'Limits depend on the tier of the key. Keys are `standard` unless agreed otherwise.\n' +
+          '- **standard**: 60 requests / minute, 2,000 requests / day, 10 uncached searches / minute.\n' +
+          '- **partner**: 120 requests / minute, 10,000 requests / day, 30 uncached searches / minute.\n' +
+          '- Each key also has a daily budget for uncached database work. Searches like `/cards?name=...` cost the most; single cards, set lists and cache hits cost nothing.\n' +
+          '- Daily limits reset at 00:00 UTC. Responses carry `X-RateLimit-Limit-Day` and `X-RateLimit-Remaining-Day` (approximate).\n' +
+          '- Exceeding a limit returns `429` with a `Retry-After` header and `{ error, tier, limit, detail }`. `error` is one of `rate_limited`, `heavy_rate_limited`, `daily_quota_exceeded`, `outside_daily_capacity` or `too_many_key_attempts`.\n' +
           'Cache `/cards/index` and `/pokemon/cards/index` (recommended: 7+ days) so a routine binder render is one slim request rather than thousands of per-card calls.\n\n' +
           '## Conventions\n' +
           '- Pagination on `/cards` follows the [Pokemon TCG API](https://pokemontcg.io/) convention (`page` / `page_size`).\n' +
@@ -65,7 +69,7 @@ export function registerDocsRoutes(app) {
             type: 'object',
             properties: {
               error: { type: 'string', example: 'api key required' },
-              detail: { type: 'string', nullable: true, example: 'per-minute cap exceeded (300/min)' },
+              detail: { type: 'string', nullable: true, example: 'per-minute cap exceeded (60/min)' },
             },
             required: ['error'],
           },
@@ -674,6 +678,7 @@ export function registerDocsRoutes(app) {
     <div class="keyholder">
       <p><strong>Already have a key?</strong> Fetch the OpenAPI spec with your <code>X-API-Key</code> header and import it into any OpenAPI viewer (Scalar, Swagger UI, Postman, Insomnia).</p>
       <p><code>curl -H "X-API-Key: opt_your_key" https://optcg-api.arjunbansal-ai.workers.dev/openapi.json</code></p>
+      <p>Keys come in tiers with per-minute and daily limits. For a full catalog sync use <code>/cards/index</code> (one request) rather than paging through <code>/cards</code>.</p>
     </div>
   </div>
 </body>
