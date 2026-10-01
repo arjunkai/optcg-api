@@ -54,6 +54,17 @@ jobs:
       - name: Install deps
         run: npm ci
 
+      # Before any Python step: the pkmnbindr imports below need httpx from
+      # requirements.txt. They used to run before this setup and failed with
+      # ModuleNotFoundError every week (hidden by continue-on-error).
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
       # ptcg-fetch.js is resumable — it reads existing cards-{lang}.json
       # and only re-fetches missing cards. Without a persisted cache,
       # every week would re-pull all ~23k cards from TCGdex. Cache
@@ -147,14 +158,6 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           POKEMONTCG_API_KEY: ${{ secrets.POKEMONTCG_API_KEY }}
         run: node scripts/fetch-pokemontcg-prices.js
-
-      - name: Setup Python (for eBay + Yuyutei + Hareruya + enrich)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Python deps
-        run: pip install -r requirements.txt
 
       # Refresh the JA → EN name map for any new JA cards that landed
       # this week. `--all` scans every JA card; the script's resume
@@ -329,6 +332,8 @@ jobs:
             git config user.email "github-actions@github.com"
             git add data/pokemontcg-data data/pokemon-tcg-pocket-database
             git commit -m "chore: weekly submodule bump (pokemontcg-data, tcg-pocket)"
+            # main may have moved during the multi-hour run (a merged PR).
+            git pull --rebase origin main
             git push
           else
             echo "No submodule changes — skipping commit."
