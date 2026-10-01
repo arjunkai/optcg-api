@@ -301,9 +301,10 @@ and `fetch-pokemontcg-prices.js`.
 
 ### Weekly refresh order
 
-`.github/workflows/ptcg-refresh.yml` — runs Mondays 08:00 UTC (offset
-2h from the OPTCG `scrape.yml` to avoid Cloudflare API contention).
-TCGdex cache persisted via `actions/cache@v4`. Auto-commits the
+`.github/workflows/ptcg-refresh.yml` — runs Tuesdays 08:00 UTC, the day
+after the OPTCG `scrape.yml`, so each gets its own UTC day of D1 budget.
+TCGdex cache persisted via `actions/cache@v4` (GitHub evicts caches unused
+for 7 days; a run that slips past that starts cold and rewrites most rows). Auto-commits the
 pokemontcg-data submodule pointer if it bumped.
 
 ```bash

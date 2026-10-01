@@ -72,3 +72,21 @@ def test_same_second_rerun_is_a_no_op():
     row = [("sv1-1", "tcgplayer", "normal", 0.1 + 0.2, None)]
     assert _run(db, row, 100) == 1
     assert _run(db, row, 100) == 0
+
+
+def test_a_card_id_shared_across_languages_keeps_one_series():
+    # ptcg_price_history has no lang column: EN and JA rows sharing a
+    # card_id and (source, variant) used to alternate the series every week.
+    from scripts.snapshot_ptcg_price_history import build_statements
+    rows = [
+        {"card_id": "sv1-1", "lang": "en", "pricing_json": '{"ebay": {"price_usd": 10}}'},
+        {"card_id": "sv1-1", "lang": "ja", "pricing_json": '{"ebay": {"price_usd": 25}}'},
+        {"card_id": "sv1-2", "lang": "ja", "pricing_json": "not json"},
+    ]
+    db = _history_db()
+    for week in range(1, 6):
+        stmts, skipped = build_statements(rows, week)
+        assert skipped == 1
+        for s in stmts:
+            db.execute(s)
+    assert db.execute("SELECT recorded_at, price_usd FROM ptcg_price_history").fetchall() == [(1, 10.0)]

@@ -56,7 +56,7 @@ jobs:
 
       # ptcg-fetch.js is resumable — it reads existing cards-{lang}.json
       # and only re-fetches missing cards. Without a persisted cache,
-      # every Monday would re-pull all ~23k cards from TCGdex. Cache
+      # every week would re-pull all ~23k cards from TCGdex. Cache
       # rolls forward each run via the unique key + restore-keys prefix.
       - name: Restore TCGdex cache
         uses: actions/cache@v4
@@ -402,8 +402,8 @@ jobs:
       # Snapshot every (card, source, variant) price into ptcg_price_history
       # AFTER manual overrides so the chart shows the final canonical
       # value per week. INSERT OR IGNORE keys on (card_id, source,
-      # variant, recorded_at) — safe to retry, weekly cron naturally
-      # plots one snapshot per Monday.
+      # variant, recorded_at) — safe to retry. A point is written only when
+      # a series' price changed since its latest row.
       - name: Setup Python (for snapshot)
         uses: actions/setup-python@v5
         with:

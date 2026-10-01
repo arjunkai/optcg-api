@@ -824,8 +824,10 @@ def sqlite_int(v) -> int:
         return 0
     if isinstance(v, (int, float)):
         return int(v)
-    m = re.match(r"\s*([+-]?\d+)", str(v))
-    return int(m.group(1)) if m else 0
+    m = re.match(r"[ \t\n\f\r]*([+-]?[0-9]+)", str(v))
+    if not m:
+        return 0
+    return max(-(2 ** 63), min(2 ** 63 - 1, int(m.group(1))))  # SQLite clamps to int64
 
 
 def plan_updates(updates: list[tuple[Signal, list[tuple[str, int]]]],

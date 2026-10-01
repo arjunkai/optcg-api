@@ -79,22 +79,7 @@ def main() -> None:
 
     print("2. Extracting (card_id, source, variant, price) tuples...")
     now = int(time.time())
-    stmts: list[str] = []
-    skipped = 0
-    for row in rows:
-        cid = row["card_id"]
-        pj_str = row.get("pricing_json")
-        try:
-            pj = json.loads(pj_str) if pj_str else None
-        except (json.JSONDecodeError, TypeError):
-            skipped += 1
-            continue
-        if not isinstance(pj, dict):
-            skipped += 1
-            continue
-
-        for source, variant, usd, eur in history_rows(pj):
-            stmts.append(_insert(cid, source, variant, usd, eur, now))
+    stmts, skipped = build_statements(rows, now)
 
     print(f"   {len(stmts)} history rows to insert ({skipped} cards skipped on bad pricing_json)")
     if not stmts:
@@ -140,6 +125,36 @@ def main() -> None:
     print("Done.")
 
 
+def build_statements(rows: list[dict], now: int) -> tuple[list[str], int]:
+    """INSERT statements for one snapshot, and how many rows had bad pricing_json."""
+    stmts: list[str] = []
+    skipped = 0
+    # ptcg_price_history has no lang column, and EN/JA rows can share a
+    # card_id with the same (source, variant) (ebay, manual). Keep only the
+    # first row per series (rows come in rowid order, the order the old
+    # same-timestamp INSERT OR IGNORE resolved it); otherwise the change-only
+    # check compares EN against JA and the series flips every week.
+    seen: set[tuple[str, str, str]] = set()
+    for row in rows:
+        cid = row["card_id"]
+        pj_str = row.get("pricing_json")
+        try:
+            pj = json.loads(pj_str) if pj_str else None
+        except (json.JSONDecodeError, TypeError):
+            skipped += 1
+            continue
+        if not isinstance(pj, dict):
+            skipped += 1
+            continue
+
+        for source, variant, usd, eur in history_rows(pj):
+            if (cid, source, variant) in seen:
+                continue
+            seen.add((cid, source, variant))
+            stmts.append(_insert(cid, source, variant, usd, eur, now))
+    return stmts, skipped
+
+
 def history_rows(pj: dict) -> list[tuple[str, str, float | None, float | None]]:
     """(source, variant, price_usd, price_eur) tuples to snapshot for one card."""
     out: list[tuple[str, str, float | None, float | None]] = []
@@ -177,7 +192,8 @@ def history_rows(pj: dict) -> list[tuple[str, str, float | None, float | None]]:
 
 def _fetch_priced_rows() -> list[dict]:
     sql = ("SELECT card_id, lang, pricing_json FROM ptcg_cards "
-           "WHERE pricing_json IS NOT NULL AND pricing_json != '{}' AND pricing_json != ''")
+           "WHERE pricing_json IS NOT NULL AND pricing_json != '{}' AND pricing_json != '' "
+           "ORDER BY rowid")
     out = subprocess.run(
         WRANGLER + ["--remote", "--json", "--command", sql],
         capture_output=True, text=True, encoding="utf-8", errors="replace",

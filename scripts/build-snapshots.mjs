@@ -86,7 +86,10 @@ function remoteQuery(stats) {
             Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ sql, params }),
+          // The REST API documents params as strings; SQLite coerces them
+          // back (rowid > '10', LIMIT '500') and the lang index still applies.
+          body: JSON.stringify({ sql, params: params.map(String) }),
+          signal: AbortSignal.timeout(60_000),
         });
         const body = await res.json().catch(() => null);
         if (!res.ok || !body?.success) {
@@ -111,7 +114,9 @@ async function sqliteQuery(file) {
 }
 
 function r2Put(key, file, local) {
-  const args = ['wrangler', 'r2', 'object', 'put', `${BUCKET}/${key}`, `--file=${file}`,
+  // shell:true (needed for npx.cmd on Windows) doesn't quote args.
+  const q = (s) => (process.platform === 'win32' ? `"${s}"` : s);
+  const args = ['wrangler', 'r2', 'object', 'put', `${BUCKET}/${key}`, `--file=${q(file)}`,
     '--content-type=application/json', local ? '--local' : '--remote'];
   const r = spawnSync(NPX, args, { encoding: 'utf8', shell: process.platform === 'win32' });
   if (r.status !== 0) {
