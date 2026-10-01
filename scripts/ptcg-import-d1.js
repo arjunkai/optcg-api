@@ -231,7 +231,15 @@ function upsert(table, cols, vals, pkCols) {
       // RFC 7396 merge — fresh keys overwrite, absent keys preserved.
       // Pre-stripping nulls (see stripNullPricing) keeps TCGdex
       // empties from deleting backfilled keys.
-      return `json_patch(COALESCE(${c}, '{}'), excluded.${c})`;
+      //
+      // Except rows the live pokemontcg.io feed prices (or a manual
+      // override pins): fetch-pokemontcg-prices.js writes the same
+      // cardmarket/tcgplayer keys from fresher data, and the TCGdex cache
+      // never refreshes pricing, so merging here put last year's averages
+      // back every week and pokemontcg rewrote them, ~17-19k EN rows written
+      // twice per run for nothing.
+      const merged = `json_patch(COALESCE(${c}, '{}'), excluded.${c})`;
+      return `CASE WHEN price_source IN ('pokemontcg', 'manual') THEN ${c} ELSE ${merged} END`;
     }
     return `excluded.${c}`;
   };
@@ -252,13 +260,21 @@ function upsert(table, cols, vals, pkCols) {
 // cards it has no data on. Passed through json_patch, those nulls would
 // DELETE existing cardmarket/tcgplayer keys (RFC 7396 semantics). Drop
 // null-valued entries so the patch is a no-op for missing sources.
+// Drops nulls at every depth. Top-level nulls would DELETE backfilled keys
+// under json_patch; nested ones (TCGdex's `cardmarket["avg-holo"]: null`)
+// were stored on INSERT and then deleted by the next week's merge, one
+// wasted D1 write per new card.
 function stripNullPricing(pricing) {
   if (!pricing || typeof pricing !== 'object') return {};
-  const out = {};
-  for (const [k, v] of Object.entries(pricing)) {
-    if (v != null) out[k] = v;
-  }
-  return out;
+  const strip = (obj) => {
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (v == null) continue;
+      out[k] = typeof v === 'object' && !Array.isArray(v) ? strip(v) : v;
+    }
+    return out;
+  };
+  return strip(pricing);
 }
 
 function escSql(val) {

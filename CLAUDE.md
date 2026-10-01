@@ -399,6 +399,14 @@ the whole API down (every data route 500s). Rules that keep us under it:
   routes go through R2 snapshots (`src/snapshot.js`). New list routes should
   use `countTotal()` and avoid correlated `EXISTS` over `cards` (use
   `c.id IN (SELECT ...)` so an index drives the query).
+- Price history (`card_price_history`, `ptcg_price_history`) gets a point
+  only when a series' price differs from its latest row; a flat price adds
+  nothing. Unindexable filters (`UPPER(set_id) = ?`, `CAST(local_id ...)`)
+  must not run once per key: read the language once and match in code
+  (`enrich_ja_promo_campaigns.py`, `backfill_yuyutei_catalog.py`).
+- The OPTCG scrape runs Mondays and the PTCG refresh Tuesdays, so each gets
+  its own UTC day of D1 budget. `tests/import-writes.test.mjs` runs the
+  importers' generated SQL twice and requires 0 changes the second time.
 - `rows_read` / `rows_written` show in `wrangler d1 execute --json` output
   and in the CI logs; check them when adding a step.
 - The edge-cache key keeps only the params each route reads

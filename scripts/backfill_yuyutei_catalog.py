@@ -62,28 +62,40 @@ BATCH_SIZE = 100  # rows per multi-statement SQL file
 TARGET_LANG = "ja"
 
 
+_EXISTING_LIDS: dict[str, set[str]] | None = None
+
+
 def fetch_existing_lids_for_set(set_id: str) -> set[str]:
     """Return the set of local_id strings we already have for
-    (set_id, lang='ja'). Used to diff against Yuyutei scraped products
-    and decide which need INSERTing.
+    (set_id, lang='ja'), set_id compared case-insensitively. Used to diff
+    against Yuyutei scraped products and decide which need INSERTing.
 
     Returns strings (not ints) because catalog rows can carry
     zero-padded local_ids like '001' that we should compare verbatim.
     Yuyutei's scraped card_number is unpadded; we compare against both
     the raw scraped value and the zfill(3) variant to catch either
     storage convention.
+
+    Every JA (set_id, local_id) is read once per run and answered from
+    memory: a per-set `WHERE UPPER(set_id) = ?` can use no index, so each
+    of ~90 sets scanned all ~22k JA rows (~2M D1 rows read per run).
     """
+    global _EXISTING_LIDS
+    if _EXISTING_LIDS is None:
+        _EXISTING_LIDS = _fetch_all_existing_lids()
+    return set(_EXISTING_LIDS.get(set_id.upper(), set()))
+
+
+def _fetch_all_existing_lids() -> dict[str, set[str]]:
     cmd = WRANGLER_BIN + [
         "--remote",
         "--json",
         "--command",
-        f"SELECT local_id FROM ptcg_cards "
-        f"WHERE UPPER(set_id) = '{set_id.upper()}' "
-        f"AND lang = '{TARGET_LANG}'",
+        f"SELECT set_id, local_id FROM ptcg_cards WHERE lang = '{TARGET_LANG}'",
     ]
     result = run_wrangler(cmd)
     if result.returncode != 0:
-        print(f"   FAIL fetching existing LIDs for {set_id} after "
+        print(f"   FAIL fetching existing LIDs after "
               f"{WRANGLER_MAX_ATTEMPTS} attempts: "
               f"{(result.stderr or '')[:400]}")
         sys.exit(1)
@@ -95,7 +107,16 @@ def fetch_existing_lids_for_set(set_id: str) -> set[str]:
               f"--- payload (head) ---\n{payload[:400]}")
         sys.exit(1)
     rows = data[0]["results"] if isinstance(data, list) else data.get("results", [])
-    return {str(r["local_id"]) for r in rows if r.get("local_id") is not None}
+    return group_lids(rows)
+
+
+def group_lids(rows: list[dict]) -> dict[str, set[str]]:
+    out: dict[str, set[str]] = {}
+    for r in rows:
+        if r.get("local_id") is None or r.get("set_id") is None:
+            continue
+        out.setdefault(str(r["set_id"]).upper(), set()).add(str(r["local_id"]))
+    return out
 
 
 def _strip_wrangler_chrome(stdout: str) -> str:

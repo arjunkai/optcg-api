@@ -29,16 +29,24 @@ right language partition. This is non-negotiable post-Van Gogh:
 local_id) and would collide if we matched cross-language. See
 feedback_no_local_id_collision.md.
 
-The UPDATE join is `(UPPER(set_id), CAST(local_id AS INTEGER))` — the
+The match key is `(lang, UPPER(set_id), CAST(local_id AS INTEGER))` — the
 2026-05-16 dedupe bug came from two ingest pipelines disagreeing on
-case + zero-padding for the same physical card. Normalize at the SQL
-boundary, not later.
+case + zero-padding for the same physical card. Since 2026-10-01 the
+matching runs in Python over ONE SELECT of the signals' languages
+(sqlite_int reproduces SQLite's CAST), and each matched card gets one
+UPDATE by primary key, only when its tags differ. The old per-key
+UPDATE ... WHERE UPPER(set_id) = ? could use no index, so each of ~381
+statements scanned the whole language: ~8.4M D1 rows read per run,
+over Workers Free's 5M/day on its own. When several signals match one
+card the last one in CAMPAIGN_SIGNALS wins, as it did when the UPDATEs
+ran in order.
 
 Output: scripts/enrich_campaigns/<slug>_<NNN>.sql
 
 Usage:
     python -m scripts.enrich_ja_promo_campaigns --dry-run
-        Crawl every signal, write SQL files, don't touch D1.
+        Crawl every signal, read D1 once to match cards, write SQL files.
+        No D1 writes.
 
     python -m scripts.enrich_ja_promo_campaigns --apply
         Crawl + write + run each batch through wrangler.
@@ -578,7 +586,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--dry-run", action="store_true",
-                   help="Crawl + write SQL files. Don't touch D1.")
+                   help="Crawl + read D1 + write SQL files. No D1 writes.")
     g.add_argument("--apply", action="store_true",
                    help="Crawl, write SQL, AND apply against remote D1.")
     ap.add_argument("--campaigns", type=str, default="",
@@ -623,9 +631,19 @@ def main() -> None:
         print("Nothing to write.")
         return
 
-    print("2. Writing batched UPDATE SQL...")
+    langs = sorted({s.lang for s, _ in all_updates})
+    print(f"2. Reading ptcg_cards for lang {', '.join(langs)} (one query)...")
+    catalog = _fetch_catalog(langs)
+    print(f"   {len(catalog)} rows")
+    stmts = plan_updates(all_updates, catalog)
+    print(f"   {len(stmts)} card(s) need new tags")
+    if not stmts:
+        print("Nothing to write.")
+        return
+
+    print("3. Writing batched UPDATE SQL...")
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    files = _write_batches(all_updates)
+    files = _write_batches(stmts)
     print(f"   wrote {len(files)} batch file(s) to {OUT_DIR}/")
 
     if args.dry_run:
@@ -633,7 +651,7 @@ def main() -> None:
               "then re-run with --apply.")
         return
 
-    print("3. Applying batches against remote D1...")
+    print("4. Applying batches against remote D1...")
     for i, f in enumerate(files, 1):
         print(f"   [{i}/{len(files)}] executing {f.name}...")
         result = run_wrangler(WRANGLER + [f"--file={f}", "--remote"])
@@ -799,32 +817,71 @@ def _parse_setlist_keys(wikitext: str, signal: Signal) -> list[tuple[str, int]]:
     return out
 
 
-def _write_batches(updates: list[tuple[Signal, list[tuple[str, int]]]]
-                   ) -> list[Path]:
-    """One SQL file per campaign per batch. Each UPDATE joins by
-    (lang, UPPER(set_id), CAST(local_id AS INTEGER)) so case +
-    zero-padding differences across ingest pipelines can't cause silent
-    misses, and lang stays partitioned to defend against the
-    cross-region lid collision (svp-085 EN vs SVP-85 JA).
+def sqlite_int(v) -> int:
+    """SQLite's CAST(v AS INTEGER) for a TEXT/INTEGER local_id: optional
+    leading spaces and sign, then the leading digits; no digits -> 0."""
+    if isinstance(v, bool) or v is None:
+        return 0
+    if isinstance(v, (int, float)):
+        return int(v)
+    m = re.match(r"\s*([+-]?\d+)", str(v))
+    return int(m.group(1)) if m else 0
+
+
+def plan_updates(updates: list[tuple[Signal, list[tuple[str, int]]]],
+                 catalog: list[dict]) -> list[str]:
+    """One UPDATE per card whose campaign/distribution_method must change.
+
+    Matches (lang, UPPER(set_id), CAST(local_id AS INTEGER)) like the old
+    SQL join did. The last matching signal wins per card; a card already
+    carrying its tags gets no statement.
     """
-    files: list[Path] = []
+    index: dict[tuple[str, str, int], list[dict]] = {}
+    for row in catalog:
+        key = (row["lang"], str(row["set_id"]).upper(), sqlite_int(row["local_id"]))
+        index.setdefault(key, []).append(row)
+
+    wanted: dict[tuple[str, str], tuple[dict, Signal]] = {}
     for sig, keys in updates:
-        stmts = []
         for set_id, local_id in keys:
-            stmts.append(
-                "UPDATE ptcg_cards SET "
-                f"campaign = {_esc(sig.campaign)}, "
-                f"distribution_method = {_esc(sig.distribution_method)} "
-                f"WHERE lang = {_esc(sig.lang)} "
-                f"AND UPPER(set_id) = {_esc(set_id.upper())} "
-                f"AND CAST(local_id AS INTEGER) = {local_id};"
-            )
-        for i in range(0, len(stmts), BATCH_SIZE):
-            batch = stmts[i:i + BATCH_SIZE]
-            idx = (i // BATCH_SIZE) + 1
-            path = OUT_DIR / f"{sig.slug}_{idx:03d}.sql"
-            path.write_text("\n".join(batch) + "\n", encoding="utf-8")
-            files.append(path)
+            for row in index.get((sig.lang, set_id.upper(), int(local_id)), []):
+                wanted[(row["card_id"], row["lang"])] = (row, sig)
+
+    stmts = []
+    for (card_id, lang), (row, sig) in wanted.items():
+        if row.get("campaign") == sig.campaign and row.get("distribution_method") == sig.distribution_method:
+            continue
+        stmts.append(
+            "UPDATE ptcg_cards SET "
+            f"campaign = {_esc(sig.campaign)}, "
+            f"distribution_method = {_esc(sig.distribution_method)} "
+            f"WHERE card_id = {_esc(card_id)} AND lang = {_esc(lang)} "
+            f"AND (campaign IS NOT {_esc(sig.campaign)} "
+            f"OR distribution_method IS NOT {_esc(sig.distribution_method)});"
+        )
+    return stmts
+
+
+def _fetch_catalog(langs: list[str]) -> list[dict]:
+    sql = ("SELECT card_id, lang, set_id, local_id, campaign, distribution_method "
+           f"FROM ptcg_cards WHERE lang IN ({', '.join(_esc(l) for l in langs)})")
+    result = run_wrangler(WRANGLER + ["--remote", "--json", "--command", sql])
+    if result.returncode != 0:
+        print(f"   D1 read failed: {(result.stderr or '')[:400]}")
+        sys.exit(1)
+    start = (result.stdout or "").find("[")
+    if start < 0:
+        print("   D1 read returned no JSON")
+        sys.exit(1)
+    return json.loads(result.stdout[start:])[0]["results"]
+
+
+def _write_batches(stmts: list[str]) -> list[Path]:
+    files: list[Path] = []
+    for i in range(0, len(stmts), BATCH_SIZE):
+        path = OUT_DIR / f"campaigns_{(i // BATCH_SIZE) + 1:03d}.sql"
+        path.write_text("\n".join(stmts[i:i + BATCH_SIZE]) + "\n", encoding="utf-8")
+        files.append(path)
     return files
 
 

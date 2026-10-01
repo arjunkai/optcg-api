@@ -1,11 +1,19 @@
 """
 snapshot_ptcg_price_history.py — append a price-history row per
-(card, source, variant) pair from the current ptcg_cards.pricing_json.
+(card, source, variant) pair from the current ptcg_cards.pricing_json,
+but only when its price differs from that series' latest row.
 
 Runs at the end of every weekly PTCG cron after all sources have
 landed their prices. INSERT OR IGNORE keys on (card_id, source,
-variant, recorded_at), so re-runs in the same second are no-ops and
-weekly runs naturally chart out one snapshot per Monday.
+variant, recorded_at), so re-runs in the same second are no-ops.
+
+Change-only (2026-10-01): writing every series every week was ~45-70k
+D1 rows written per run against Workers Free's 100k/day, and most of it
+repeated last week's value (TCGdex Cardmarket averages never refresh).
+Each insert now checks the series' latest row first, a key-range read
+on (card_id, recorded_at DESC) that stops at the first match, a few rows
+per card. A flat price adds no point; the chart draws the line between
+the points it has.
 
 The Worker's /pokemon/cards/:id/price-history endpoint reads from
 this table to render charts. See src/pokemon/cards.js.
@@ -186,13 +194,18 @@ def _fetch_priced_rows() -> list[dict]:
 def _insert(card_id: str, source: str, variant: str,
             price_usd: float | None, price_eur: float | None,
             recorded_at: int) -> str:
+    cid, src, var = _esc(card_id), _esc(source), _esc(variant)
+    usd = 'NULL' if price_usd is None else repr(float(price_usd))
+    eur = 'NULL' if price_eur is None else repr(float(price_eur))
     return (
         "INSERT OR IGNORE INTO ptcg_price_history "
         "(card_id, source, variant, recorded_at, price_usd, price_eur) "
-        f"VALUES ({_esc(card_id)}, {_esc(source)}, {_esc(variant)}, "
-        f"{recorded_at}, "
-        f"{'NULL' if price_usd is None else price_usd}, "
-        f"{'NULL' if price_eur is None else price_eur});"
+        f"SELECT {cid}, {src}, {var}, {recorded_at}, {usd}, {eur} "
+        "WHERE NOT EXISTS (SELECT 1 FROM ("
+        "SELECT price_usd, price_eur FROM ptcg_price_history "
+        f"WHERE card_id = {cid} AND source = {src} AND variant = {var} "
+        "ORDER BY recorded_at DESC LIMIT 1) AS last "
+        f"WHERE last.price_usd IS {usd} AND last.price_eur IS {eur});"
     )
 
 
