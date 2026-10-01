@@ -21,6 +21,11 @@ Live: `https://optcg-api.arjunbansal-ai.workers.dev`  ·  Docs: `/docs`  ·  Ope
 - `src/sets.js` — `/sets` list + `/sets/:id/cards` set-cards
 - `src/images.js` — `/images/:card_id` proxy. Order: R2 (`cards/{id}.png`) → DON TCGPlayer CDN via D1 `tcg_ids` → official site fallback for regular cards
 - `src/docs.js` — OpenAPI spec + Scalar docs page
+- `src/limits.js` — API key tiers (`TIERS`), the key policy (`KEY_POLICY`), and the outside keys' daily D1 unit cap, sized for the Workers Free plan. Per-minute numbers must match `wrangler.toml` (`tests/bindings.test.mjs`); `tests/capacity.test.mjs` proves the caps fit Free.
+- `src/usage.js` — batched daily request counters per key, and the exact atomic unit meter (`INSERT … RETURNING`) for costly cache misses. Counters live in `api_key_usage` (`opt_*` requests, `u:opt_*` key units, `u:outside`).
+- `src/edgeCache.js` `unitsFor` — D1 units per cache miss; every gated route needs a rule (`tests/unit-weights.test.mjs`).
+- Scopes: `firstparty` (Arjun's services, e.g. opbindr-bot) and `admin` skip daily caps and units. Legacy `API_KEYS` env-var keys are refused.
+- **Automated agents must never run `npm run key:*` or anything that imports `scripts/_d1.mjs`** — they write to the production database. `_d1.mjs` refuses unless `scripts/remote.mjs` unlocks it after a person types `prod` in an interactive terminal. `scripts/import-*.js`, `purge-snapshots.mjs` and the Python backfills still run `wrangler --remote` directly.
 - `src/db.js` — row → JSON normalization (handles JSON-encoded columns)
 - `schema.sql` — full schema snapshot
 - `migrations/` — numbered D1 migrations

@@ -1,12 +1,12 @@
 // Daily-quota usage alerts.
 //
 // Runs on the wrangler cron schedule (see wrangler.toml [triggers]).
-// Queries D1 for any active key whose daily request count has crossed
-// the alert threshold (80% of the 100k daily limit) and posts a one-line
-// Discord message via webhook.
+// Posts a Discord message via webhook when an active key crosses 80% of its
+// tier's daily requests or database units, or when all keys together cross
+// 80% of the outside units share (src/limits.js).
 //
-// Dedup: an R2 marker `state/alerts/{day}/{prefix}` is written on every
-// alert, so each (key, day) pair only triggers one notification regardless
+// Dedup: an R2 marker `state/alerts/{day}/{id}` is written on every
+// alert, so each (thing, day) pair only triggers one notification regardless
 // of how many times the cron runs that day. (It used to live in the Cache
 // API, which is per colo, and cron runs land in different colos.)
 //
@@ -19,8 +19,8 @@
 // If the secret isn't set the cron is a no-op — safe to deploy first.
 
 import { warmCardImage } from './images.js';
+import { tierFor, OUTSIDE_UNITS_DAILY } from './limits.js';
 
-const DAILY_LIMIT = 100_000;
 const ALERT_THRESHOLD_PCT = 0.8;
 
 // Self-healing card-image warm sweep.
@@ -98,51 +98,48 @@ export async function warmColdImages(env) {
   console.log(`warm: after=${after || '-'} scanned=${rows.length} cold=${cold.length} warmed=${warmed} next=${next || '-'}`);
 }
 
-export async function checkUsageAlerts(env) {
+// Usage alerts (6-hourly cron). One Discord message per (day, thing):
+//   a key at 80% of its tier's daily requests or database units,
+//   all keys together at 80% of the outside units share.
+export async function checkUsageAlerts(env, { today = new Date().toISOString().slice(0, 10) } = {}) {
   if (!env?.DB || !env?.DISCORD_USAGE_WEBHOOK_URL) return;
+  const { results: usage = [] } = await env.DB.prepare(
+    'SELECT api_key, count FROM api_key_usage WHERE day = ?'
+  ).bind(today).all();
+  const { results: keys = [] } = await env.DB.prepare(
+    "SELECT key_prefix, owner_name, tier FROM api_keys WHERE status = 'active'"
+  ).all();
+  const counts = new Map(usage.map((r) => [r.api_key, r.count]));
+  const fmt = (n) => n.toLocaleString('en-US');
+  const alerts = [];
 
-  const today = new Date().toISOString().slice(0, 10);
-  const threshold = Math.floor(DAILY_LIMIT * ALERT_THRESHOLD_PCT);
+  for (const k of keys) {
+    const t = tierFor(k.tier);
+    const req = counts.get(k.key_prefix) || 0;
+    const units = counts.get(`u:${k.key_prefix}`) || 0;
+    if (req >= t.daily * ALERT_THRESHOLD_PCT) {
+      alerts.push([`${k.key_prefix}-req`, `Key \`${k.key_prefix}\` (${k.owner_name}, ${t.name}) is at ${fmt(req)}/${fmt(t.daily)} requests today.`]);
+    }
+    if (units >= t.dailyUnits * ALERT_THRESHOLD_PCT) {
+      alerts.push([`${k.key_prefix}-units`, `Key \`${k.key_prefix}\` (${k.owner_name}, ${t.name}) is at ${fmt(units)}/${fmt(t.dailyUnits)} database units today.`]);
+    }
+  }
+  const outside = counts.get('u:outside') || 0;
+  if (outside >= OUTSIDE_UNITS_DAILY * ALERT_THRESHOLD_PCT) {
+    alerts.push(['outside-units', `All API keys together are at ${fmt(outside)}/${fmt(OUTSIDE_UNITS_DAILY)} database units today. At 100% every key gets 429 until 00:00 UTC; OPBindr/OPCanvs are unaffected.`]);
+  }
 
-  const { results = [] } = await env.DB.prepare(
-    `SELECT k.key_prefix, k.owner_name, u.count
-     FROM api_keys k
-     JOIN api_key_usage u ON u.api_key = k.key_prefix
-     WHERE k.status = 'active' AND u.day = ? AND u.count >= ?`
-  ).bind(today, threshold).all();
-
-  if (results.length === 0) return;
-
-  for (const row of results) {
-    const dedupKey = `state/alerts/${today}/${encodeURIComponent(row.key_prefix)}`;
-    try {
-      if (env.IMAGES && await env.IMAGES.head(dedupKey)) continue;
-    } catch { /* R2 hiccup: alert anyway rather than stay silent */ }
-
-    const pct = ((row.count / DAILY_LIMIT) * 100).toFixed(1);
-    const overLimit = row.count >= DAILY_LIMIT;
-    const headline = overLimit
-      ? `**[OPTCG API] DAILY LIMIT EXHAUSTED**`
-      : `**[OPTCG API] Usage alert**`;
-
-    const content =
-      `${headline}\n` +
-      `Key \`${row.key_prefix}\` (${row.owner_name}) is at ` +
-      `${row.count.toLocaleString()}/${DAILY_LIMIT.toLocaleString()} ` +
-      `requests today (${pct}%).\n` +
-      (overLimit
-        ? `Requests are now returning 429 until UTC midnight.`
-        : `Run \`npm run key:list\` to inspect or \`npm run key:revoke -- ${row.key_prefix}\` to cut access.`);
-
+  for (const [id, text] of alerts) {
+    const dedupKey = `state/alerts/${today}/${encodeURIComponent(id)}`;
+    try { if (env.IMAGES && await env.IMAGES.head(dedupKey)) continue; } catch { /* alert anyway */ }
     try {
       await fetch(env.DISCORD_USAGE_WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content: `**[OPTCG API] Usage alert**\n${text}\nRun \`npm run key:list\` to inspect.` }),
       });
       if (env.IMAGES) await env.IMAGES.put(dedupKey, '1');
     } catch (err) {
-      // Swallow — next cron tick will retry. Logging only.
       console.error('usage-alert webhook failed:', err?.message || err);
     }
   }

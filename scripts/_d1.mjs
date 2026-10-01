@@ -10,10 +10,25 @@ import { join } from 'node:path';
 
 const NPX = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 
+// Every function here talks to the PRODUCTION database. Refuse unless the
+// caller opted in; scripts/remote.mjs (npm run key:*) opts in only after a
+// person types "prod". Automated agents must never run these scripts — an
+// agent once wrote test rows to production this way (2026-09-30).
+function assertRemoteAllowed() {
+  if (process.env.OPTCG_ALLOW_REMOTE !== '1') {
+    throw new Error(
+      'Refusing to touch the production database. A person must run the npm key scripts ' +
+      '(npm run key:issue / key:list / key:revoke / key:set-tier) in an interactive terminal. ' +
+      'Automated agents must never run them.'
+    );
+  }
+}
+
 // Run a SQL string against the remote D1 database. Captures wrangler's
 // chatter so it doesn't pollute script output; only surfaces it if the
 // command fails. Returns stdout for the caller to parse if needed.
 export function d1Execute(sql) {
+  assertRemoteAllowed();
   const tmpFile = join(tmpdir(), `optcg-api-d1-${process.pid}-${Date.now()}.sql`);
   writeFileSync(tmpFile, sql, 'utf8');
   try {
@@ -43,6 +58,7 @@ export function d1Execute(sql) {
 // JSON.stringify guards against shell-level quoting issues but isn't a
 // substitute for parameterized queries.
 export function d1Query(sql) {
+  assertRemoteAllowed();
   const args = [
     'wrangler', 'd1', 'execute', 'optcg-cards', '--remote',
     '--command=' + JSON.stringify(sql),
