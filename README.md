@@ -4,7 +4,7 @@ A REST API for trading card game data. Provides One Piece TCG card and set data 
 
 **Live API:** `https://optcg-api.arjunbansal-ai.workers.dev`  
 **Docs:** `https://optcg-api.arjunbansal-ai.workers.dev/docs`  
-**Access:** email arjunkaibansal@gmail.com (see [Access and limits](#access-and-limits))
+**Access:** request a key with [this form](https://forms.gle/56bcJgdKKSVRzjtA7) or email arjunkaibansal@gmail.com (see [Access and limits](#access-and-limits))
 
 ---
 
@@ -185,7 +185,7 @@ Each higher-priority source skips rows already populated by a higher tier on re-
 
 The deployed API at `https://optcg-api.arjunbansal-ai.workers.dev` isn't open to the public. OPBindr and OPCanvs call it from the browser; everyone else needs an API key.
 
-- **Getting a key.** Non-commercial development access is available on request. Email arjunkaibansal@gmail.com with your project, what you're building, which games you need (One Piece, Pokémon), and roughly how many requests a day you expect.
+- **Getting a key.** Non-commercial development access is available on request. Fill out the [request form](https://forms.gle/56bcJgdKKSVRzjtA7) (preferred), or email arjunkaibansal@gmail.com with your project, what you're building, which games you need (One Piece, Pokémon), and roughly how many requests a day you expect.
 - **Using a key.** Send it as the `X-API-Key` header. Keys are scoped: `optcg` for One Piece routes, `ptcg` for `/pokemon/*`.
 - **Limits** depend on the key's tier. Keys are `standard` unless agreed otherwise. Daily limits reset at 00:00 UTC.
 

@@ -61,7 +61,7 @@ export function registerDocsRoutes(app) {
             type: 'apiKey',
             in: 'header',
             name: 'X-API-Key',
-            description: 'Issued per-project. Email arjunkaibansal@gmail.com to request access.',
+            description: 'Issued per-project. Request access at https://forms.gle/56bcJgdKKSVRzjtA7 or email arjunkaibansal@gmail.com.',
           },
         },
         schemas: {
@@ -673,8 +673,8 @@ export function registerDocsRoutes(app) {
   <div class="card">
     <h1>OPTCG API</h1>
     <p>A private REST API for One Piece TCG and Pokémon TCG card data and prices. Access is granted on a per-project basis after a short review.</p>
-    <a class="cta" href="mailto:arjunkaibansal@gmail.com?subject=OPTCG%20API%20access%20request">Request access</a>
-    <p>Email <code>arjunkaibansal@gmail.com</code> with your project name, what you're building, which games you need (One Piece, Pokémon), and roughly how many requests a day you expect.</p>
+    <a class="cta" href="https://forms.gle/56bcJgdKKSVRzjtA7" target="_blank" rel="noopener noreferrer">Request access</a>
+    <p>The form takes a few minutes. You can also email <code>arjunkaibansal@gmail.com</code> with your project name, what you're building, which games you need (One Piece, Pokémon), and roughly how many requests a day you expect.</p>
     <div class="keyholder">
       <p><strong>Already have a key?</strong> Fetch the OpenAPI spec with your <code>X-API-Key</code> header and import it into any OpenAPI viewer (Scalar, Swagger UI, Postman, Insomnia).</p>
       <p><code>curl -H "X-API-Key: opt_your_key" https://optcg-api.arjunbansal-ai.workers.dev/openapi.json</code></p>
