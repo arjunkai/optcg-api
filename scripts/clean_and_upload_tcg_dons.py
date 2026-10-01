@@ -35,6 +35,14 @@ DON_CARDS_PATH = Path("data/don_cards.json")
 MAPPING_PATH = Path("data/don_image_mapping.json")
 USER_AGENT = "Mozilla/5.0 (optcg-api image migrator)"
 
+# DONs whose R2 image was sourced by hand from somewhere better than
+# TCGPlayer's 1000x1000 product shot. The weekly run must not overwrite
+# them. (don_image_mapping.json can't hold these: its values are PDF
+# filenames that upload_don_images_r2.js re-uploads from.)
+KEEP_R2_IMAGE = {
+    "DON-035": "eBay scan, 1108x1540 (2026-09-30)",
+}
+
 
 def fetch_tcg_image(tcg_id: int) -> bytes | None:
     url = f"https://tcgplayer-cdn.tcgplayer.com/product/{tcg_id}_in_1000x1000.jpg"
@@ -84,12 +92,15 @@ def main() -> None:
             continue
         if don_id in mapping:
             continue  # skip curated PDF mappings — higher res
+        if don_id in KEEP_R2_IMAGE:
+            continue  # hand-sourced image already in R2
         if not c.get("tcg_ids"):
             continue
         targets.append((don_id, c["tcg_ids"][0], c["name"]))
 
     print(f"Total DON cards: {len(don_cards)}")
     print(f"Already curated from PDF (skipped): {len(mapping)}")
+    print(f"Hand-sourced R2 images kept (skipped): {len(KEEP_R2_IMAGE)}")
     print(f"TCGPlayer-backed DONs to clean + upload: {len(targets)}")
     print()
 
