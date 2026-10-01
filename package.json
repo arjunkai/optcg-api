@@ -6,6 +6,7 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "dev": "wrangler dev",
+    "e2e:limits": "node scripts/e2e-limits.mjs",
     "deploy": "wrangler deploy",
     "key:issue": "node scripts/remote.mjs scripts/issue-key.mjs",
     "key:list": "node scripts/remote.mjs scripts/list-keys.mjs",
