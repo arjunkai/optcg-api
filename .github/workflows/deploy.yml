@@ -19,6 +19,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -28,6 +29,18 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # Requests never build R2 snapshots (src/snapshot.js), so build them
+      # from this commit's src/snapshotDefs.js before the code that serves
+      # them goes live: a renamed snapshot (shape bump) would otherwise 503
+      # until the next weekly import. ~100k D1 reads, no Worker requests.
+      # A failed build stops the deploy.
+      - name: Build R2 snapshots
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OPTCG_ALLOW_REMOTE: '1'
+        run: node scripts/build-snapshots.mjs
 
       - name: Deploy to Cloudflare
         env:

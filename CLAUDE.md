@@ -25,7 +25,7 @@ Live: `https://optcg-api.arjunbansal-ai.workers.dev`  ·  Docs: `/docs`  ·  Ope
 - `src/usage.js` — batched daily request counters per key, and the exact atomic unit meter (`INSERT … RETURNING`) for costly cache misses. Counters live in `api_key_usage` (`opt_*` requests, `u:opt_*` key units, `u:outside`).
 - `src/edgeCache.js` `unitsFor` — D1 units per cache miss; every gated route needs a rule (`tests/unit-weights.test.mjs`).
 - Scopes: `firstparty` (Arjun's services, e.g. opbindr-bot) and `admin` skip daily caps and units. Legacy `API_KEYS` env-var keys are refused.
-- **Automated agents must never run `npm run key:*` or anything that imports `scripts/_d1.mjs`** — they write to the production database. `_d1.mjs` refuses unless `scripts/remote.mjs` unlocks it after a person types `prod` in an interactive terminal. `scripts/import-*.js`, `purge-snapshots.mjs` and the Python backfills still run `wrangler --remote` directly.
+- **Automated agents must never run `npm run key:*` or anything that imports `scripts/_d1.mjs`** — they write to the production database. `_d1.mjs` refuses unless `scripts/remote.mjs` unlocks it after a person types `prod` in an interactive terminal. `scripts/import-*.js` and the Python backfills still run `wrangler --remote` directly. `scripts/build-snapshots.mjs` refuses production unless `OPTCG_ALLOW_REMOTE=1` (the workflows set it; agents must not); agents can run it with `--sqlite FILE --out DIR`.
 - `src/db.js` — row → JSON normalization (handles JSON-encoded columns)
 - `schema.sql` — full schema snapshot
 - `migrations/` — numbered D1 migrations
@@ -301,9 +301,10 @@ and `fetch-pokemontcg-prices.js`.
 
 ### Weekly refresh order
 
-`.github/workflows/ptcg-refresh.yml` — runs Mondays 08:00 UTC (offset
-2h from the OPTCG `scrape.yml` to avoid Cloudflare API contention).
-TCGdex cache persisted via `actions/cache@v4`. Auto-commits the
+`.github/workflows/ptcg-refresh.yml` — runs Tuesdays 08:00 UTC, the day
+after the OPTCG `scrape.yml`, so each gets its own UTC day of D1 budget.
+TCGdex cache persisted via `actions/cache@v4` (GitHub evicts caches unused
+for 7 days; a run that slips past that starts cold and rewrites most rows). Auto-commits the
 pokemontcg-data submodule pointer if it bumped.
 
 ```bash
@@ -363,24 +364,24 @@ npx wrangler d1 execute optcg-cards --remote --command \
    FROM ptcg_cards WHERE lang='en' GROUP BY host"
 ```
 
-After every refresh, also bust the Worker caches. `refresh=1` only works
-with an `X-API-Key` whose scopes include `admin` (issue yourself one with
-`npm run key:issue -- --owner me --scopes optcg,ptcg,admin`); other keys and
-Origin-only callers are ignored, because Origin is forgeable and a refresh
-loop would force full-table D1 reads. It purges that colo's edge entry and
-rebuilds the R2 snapshot (`snapshots/*.json`, see `src/snapshot.js`) that
-every colo shares:
+After every refresh, rebuild the R2 snapshots the bulk routes serve
+(`snapshots/*.json`, defined in `src/snapshotDefs.js`). Requests never build
+them: on Workers Free a build can't fit in the 10 ms CPU limit, so
+`src/snapshot.js` only reads R2 (then `snapshots/lkg/`, then 503s). The weekly
+workflows and `deploy.yml` run the builder; after a hand-run backfill, run
+the "Build R2 snapshots" workflow (`snapshots.yml`, optional `only` input:
+`optcg`, `canvs`, `pokemon`, a name, or `prefix*`). A person can also run it
+locally against production:
 
 ```bash
-for lang in en ja zh-cn zh-tw; do
-  curl -s -o /dev/null -w "$lang: %{http_code}\n" \
-    -H "X-API-Key: $OPTCG_API_KEY" \
-    "https://optcg-api.arjunbansal-ai.workers.dev/pokemon/cards/index?lang=$lang&refresh=1"
-done
+OPTCG_ALLOW_REMOTE=1 CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=...   node scripts/build-snapshots.mjs --only pokemon
 ```
 
-Snapshots also expire on their own after 6h, and both weekly workflows
-delete them (`scripts/purge-snapshots.mjs`) after importing.
+Edge copies turn over within 1h per colo. `refresh=1` with an admin
+`X-API-Key` skips that colo's edge copy and re-reads R2; it doesn't rebuild.
+A new or renamed snapshot (bump the name when the shape changes) needs an
+entry in `src/snapshotDefs.js`; `npm test` fails otherwise, and `deploy.yml`
+builds it before the code that serves it goes live.
 
 ## D1 free-tier budget
 
@@ -399,6 +400,14 @@ the whole API down (every data route 500s). Rules that keep us under it:
   routes go through R2 snapshots (`src/snapshot.js`). New list routes should
   use `countTotal()` and avoid correlated `EXISTS` over `cards` (use
   `c.id IN (SELECT ...)` so an index drives the query).
+- Price history (`card_price_history`, `ptcg_price_history`) gets a point
+  only when a series' price differs from its latest row; a flat price adds
+  nothing. Unindexable filters (`UPPER(set_id) = ?`, `CAST(local_id ...)`)
+  must not run once per key: read the language once and match in code
+  (`enrich_ja_promo_campaigns.py`, `backfill_yuyutei_catalog.py`).
+- The OPTCG scrape runs Mondays and the PTCG refresh Tuesdays, so each gets
+  its own UTC day of D1 budget. `tests/import-writes.test.mjs` runs the
+  importers' generated SQL twice and requires 0 changes the second time.
 - `rows_read` / `rows_written` show in `wrangler d1 execute --json` output
   and in the CI logs; check them when adding a step.
 - The edge-cache key keeps only the params each route reads
@@ -408,8 +417,9 @@ the whole API down (every data route 500s). Rules that keep us under it:
   (`RL_IP_HEAVY`); everything else to 1500/min (`RL_IP`). A new expensive
   route belongs in `isHeavyMiss`, or should answer from a snapshot in JS the
   way `/characters` does (`loadSnapshotData`).
-- Snapshots keep a last-known-good copy at `snapshots/lkg/`, which the weekly
-  purge leaves alone, so a D1 outage never 500s the bulk indexes.
+- Snapshot routes never query D1 (`src/snapshot.js`), so a D1 outage or an
+  exhausted quota never takes down the bulk indexes. The builder also writes
+  a last-known-good copy at `snapshots/lkg/` as the fallback.
 
 ### Coverage today (2026-04-30)
 

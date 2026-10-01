@@ -140,7 +140,10 @@ def image_update_sql(card_id: str, image_url: str) -> str:
         f"UPDATE ptcg_cards SET "
         f"image_high = COALESCE(image_high, '{img}'), "
         f"image_low = COALESCE(image_low, '{img}') "
-        f"WHERE card_id = '{cid}' AND lang = 'ja';"
+        f"WHERE card_id = '{cid}' AND lang = 'ja' "
+        # COALESCE alone rewrote every row that already had both images
+        # (a no-op write still counts against D1's 100k rows-written/day).
+        f"AND (image_high IS NULL OR image_low IS NULL);"
     )
 
 

@@ -107,15 +107,16 @@ for (const pkmId of pokemontcgSets) {
     const patchSql = JSON.stringify(patch).replace(/'/g, "''");
 
     const newPricing = `json_patch(COALESCE(pricing_json, '{}'), '${patchSql}')`;
-    const newSource = `CASE WHEN price_source = 'manual' THEN 'manual' ELSE 'pokemontcg' END`;
-    const updates = [`pricing_json = ${newPricing}`, `price_source = ${newSource}`];
-    // Skip rows whose prices didn't move since last week — a no-op UPDATE
-    // still counts as a D1 row written.
-    const changed = `(pricing_json IS NOT ${newPricing} OR price_source IS NOT ${newSource})`;
 
+    // Skip rows whose prices didn't move since last week — a no-op UPDATE
+    // still counts as a D1 row written. price_source is indexed, so it gets
+    // its own statement that runs only when it actually changes; in the
+    // same SET it would rewrite that index entry on every price move.
     for (const candidate of candidates) {
+      const where = `card_id = ${escSql(candidate)} AND lang = 'en'`;
       stmts.push(
-        `UPDATE ptcg_cards SET ${updates.join(', ')} WHERE card_id = ${escSql(candidate)} AND lang = 'en' AND ${changed};`,
+        `UPDATE ptcg_cards SET pricing_json = ${newPricing} WHERE ${where} AND pricing_json IS NOT ${newPricing};`,
+        `UPDATE ptcg_cards SET price_source = 'pokemontcg' WHERE ${where} AND price_source IS NOT 'pokemontcg' AND price_source IS NOT 'manual';`,
       );
     }
   }

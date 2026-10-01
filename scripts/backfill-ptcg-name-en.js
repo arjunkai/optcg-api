@@ -48,8 +48,10 @@ const stmts = entries.map(([cardId, enName]) =>
   // when prior runs wrote wrong values (e.g. cross-region card_id
   // collisions where DP3-4 JA Charmander got "Entei" from EN DP3-4).
   force
-    ? `UPDATE ptcg_cards SET name_en = ${escSql(enName)} WHERE card_id = ${escSql(cardId)} AND lang = 'ja';`
-    : `UPDATE ptcg_cards SET name_en = COALESCE(name_en, ${escSql(enName)}) WHERE card_id = ${escSql(cardId)} AND lang = 'ja';`
+    ? `UPDATE ptcg_cards SET name_en = ${escSql(enName)} WHERE card_id = ${escSql(cardId)} AND lang = 'ja' AND name_en IS NOT ${escSql(enName)};`
+    // name_en IS NULL: COALESCE alone rewrote every already-set row (~18k
+    // no-op writes a week against D1's 100k rows-written/day).
+    : `UPDATE ptcg_cards SET name_en = ${escSql(enName)} WHERE card_id = ${escSql(cardId)} AND lang = 'ja' AND name_en IS NULL;`
 );
 
 const batchCount = Math.ceil(stmts.length / BATCH_SIZE);

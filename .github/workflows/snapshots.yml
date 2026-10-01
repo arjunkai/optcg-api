@@ -1,0 +1,42 @@
+name: Build R2 snapshots
+
+# Rebuilds the R2 snapshots the bulk routes serve (src/snapshotDefs.js,
+# scripts/build-snapshots.mjs). The weekly imports and deploy.yml already run
+# it; use this after a hand-run backfill or to repair a snapshot. A full build
+# reads ~100k D1 rows and uses no Worker requests.
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Comma-separated groups (optcg, canvs, pokemon), names, or prefix*; empty = all'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build snapshots
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OPTCG_ALLOW_REMOTE: '1'
+          ONLY: ${{ inputs.only }}
+        run: |
+          if [ -n "$ONLY" ]; then
+            node scripts/build-snapshots.mjs --only "$ONLY"
+          else
+            node scripts/build-snapshots.mjs
+          fi

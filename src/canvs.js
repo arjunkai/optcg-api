@@ -1,12 +1,15 @@
 import { parseCards } from './db.js';
 import { countTotal, pageParams } from './cards.js';
-import { serveSnapshot, loadSnapshotData } from './snapshot.js';
+import { serveSnapshot, loadSnapshotData, snapshotUnavailable } from './snapshot.js';
+
+// The SQL and transforms below build snapshots (src/snapshotDefs.js, run by
+// scripts/build-snapshots.mjs). Requests only read the built R2 copies.
 
 // One representative card per character / illustrator / set. Each query picks
 // exactly what the per-tile request it replaces returned (see
 // /representatives below). MIN(c.id) with bare columns is SQLite's
 // documented "row holding the min" behaviour.
-const REP_QUERIES = {
+export const REP_QUERIES = {
   // = /artwork?character=ID&page_size=1  (first non-DON card by id, any role)
   character: `
     SELECT cc.character_id AS rep_key, MIN(c.id) AS id, c.name, c.category
@@ -35,7 +38,7 @@ const REP_QUERIES = {
 // Every character with its list fields, counts and the distinct type labels
 // of the cards it appears on (for ?q= type matching; stripped from
 // responses). One snapshot build replaces the per-request SQL.
-const ROSTER_SQL = {
+export const ROSTER_SQL = {
   characters: `
     SELECT ch.id, ch.name, ch.name_ja, ch.source, ch.wikidata_qid, ch.fandom_title,
            COALESCE(cc.n, 0) AS card_count, COALESCE(ac.n, 0) AS artwork_count
@@ -53,33 +56,38 @@ const ROSTER_SQL = {
     JOIN cards c ON c.id = cc.card_id, json_each(c.types) j`,
 };
 
-async function charactersRoster(c) {
-  return loadSnapshotData(c, 'characters-roster-v1', async () => {
-    const [{ results: chars }, { results: types }] = await c.env.DB.batch([
-      c.env.DB.prepare(ROSTER_SQL.characters),
-      c.env.DB.prepare(ROSTER_SQL.types),
-    ]);
-    const byChar = new Map();
-    for (const { character_id, type } of types) {
-      if (!byChar.has(character_id)) byChar.set(character_id, []);
-      byChar.get(character_id).push(type);
-    }
-    return chars.map((ch) => ({ ...ch, types: byChar.get(ch.id) || [] }));
-  });
+export function buildRoster(chars, types) {
+  const byChar = new Map();
+  for (const { character_id, type } of types) {
+    if (!byChar.has(character_id)) byChar.set(character_id, []);
+    byChar.get(character_id).push(type);
+  }
+  return chars.map((ch) => ({ ...ch, types: byChar.get(ch.id) || [] }));
 }
 
 // Displayable artwork per collection, NULL collection included (it counts
 // toward the unfiltered total). Rows come back in GROUP BY order, which is
 // what the old per-request query returned.
-async function artworkCollectionCounts(c) {
-  return loadSnapshotData(c, 'artwork-collections-v1', async () => {
-    const { results } = await c.env.DB.prepare(
-      `SELECT collection, count(*) AS n FROM artwork
-       WHERE source_url IS NOT NULL AND source_url <> ''
-       GROUP BY collection`
-    ).all();
-    return results;
-  });
+export const COLLECTIONS_SQL = `
+  SELECT collection, count(*) AS n FROM artwork
+  WHERE source_url IS NOT NULL AND source_url <> ''
+  GROUP BY collection`;
+
+// { kind, count, data: { key: { id, name, category } } } for /representatives.
+export function buildReps(kind, results) {
+  const groups = new Map();
+  for (const { rep_key, id, name, category } of results) {
+    const key = String(rep_key);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({ id, name, category });
+  }
+  const data = {};
+  for (const [key, cards] of groups) {
+    // character/artist groups hold one row; a set holds its top 8 by
+    // price, and the tile fronts the first non-DON of those.
+    data[key] = cards.find((card) => card.category !== 'Don') || cards[0];
+  }
+  return { kind, count: groups.size, data };
 }
 
 // SQLite LIKE: % is any run, _ is one character, ASCII letters match either
@@ -176,7 +184,8 @@ export function registerCanvsRoutes(app) {
   app.get('/characters', async (c) => {
     const q = c.req.query();
     const { page, pageSize, offset } = pageParams(q);
-    const roster = await charactersRoster(c);
+    const roster = await loadSnapshotData(c, 'characters-roster-v1');
+    if (!roster) return snapshotUnavailable('characters-roster-v1');
 
     let rows = roster;
     if (q.q) {
@@ -330,7 +339,8 @@ export function registerCanvsRoutes(app) {
     ).bind(...params, pageSize, offset).all();
     // Per-collection counts (unfiltered) so the UI can render collection pills.
     // They also give totalCount, so a page costs one scan instead of three.
-    const counts = await artworkCollectionCounts(c);
+    const counts = await loadSnapshotData(c, 'artwork-collections-v1');
+    if (!counts) return snapshotUnavailable('artwork-collections-v1');
     const totalCount = collection
       ? (counts.find((r) => r.collection === collection)?.n ?? 0)
       : counts.reduce((sum, r) => sum + r.n, 0);
@@ -350,22 +360,7 @@ export function registerCanvsRoutes(app) {
     if (!Object.hasOwn(REP_QUERIES, kind)) {
       return c.json({ error: 'kind must be character, artist or set' }, 400);
     }
-    return serveSnapshot(c, `reps-${kind}-v1`, async () => {
-      const { results } = await c.env.DB.prepare(REP_QUERIES[kind]).all();
-      const groups = new Map();
-      for (const { rep_key, id, name, category } of results) {
-        const key = String(rep_key);
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push({ id, name, category });
-      }
-      const data = {};
-      for (const [key, cards] of groups) {
-        // character/artist groups hold one row; a set holds its top 8 by
-        // price, and the tile fronts the first non-DON of those.
-        data[key] = cards.find((card) => card.category !== 'Don') || cards[0];
-      }
-      return { kind, count: groups.size, data };
-    });
+    return serveSnapshot(c, `reps-${kind}-v1`);
   });
 
   // GET /products

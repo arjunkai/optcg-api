@@ -1,11 +1,19 @@
 """
 snapshot_ptcg_price_history.py — append a price-history row per
-(card, source, variant) pair from the current ptcg_cards.pricing_json.
+(card, source, variant) pair from the current ptcg_cards.pricing_json,
+but only when its price differs from that series' latest row.
 
 Runs at the end of every weekly PTCG cron after all sources have
 landed their prices. INSERT OR IGNORE keys on (card_id, source,
-variant, recorded_at), so re-runs in the same second are no-ops and
-weekly runs naturally chart out one snapshot per Monday.
+variant, recorded_at), so re-runs in the same second are no-ops.
+
+Change-only (2026-10-01): writing every series every week was ~45-70k
+D1 rows written per run against Workers Free's 100k/day, and most of it
+repeated last week's value (TCGdex Cardmarket averages never refresh).
+Each insert now checks the series' latest row first, a key-range read
+on (card_id, recorded_at DESC) that stops at the first match, a few rows
+per card. A flat price adds no point; the chart draws the line between
+the points it has.
 
 The Worker's /pokemon/cards/:id/price-history endpoint reads from
 this table to render charts. See src/pokemon/cards.js.
@@ -71,22 +79,7 @@ def main() -> None:
 
     print("2. Extracting (card_id, source, variant, price) tuples...")
     now = int(time.time())
-    stmts: list[str] = []
-    skipped = 0
-    for row in rows:
-        cid = row["card_id"]
-        pj_str = row.get("pricing_json")
-        try:
-            pj = json.loads(pj_str) if pj_str else None
-        except (json.JSONDecodeError, TypeError):
-            skipped += 1
-            continue
-        if not isinstance(pj, dict):
-            skipped += 1
-            continue
-
-        for source, variant, usd, eur in history_rows(pj):
-            stmts.append(_insert(cid, source, variant, usd, eur, now))
+    stmts, skipped = build_statements(rows, now)
 
     print(f"   {len(stmts)} history rows to insert ({skipped} cards skipped on bad pricing_json)")
     if not stmts:
@@ -132,6 +125,36 @@ def main() -> None:
     print("Done.")
 
 
+def build_statements(rows: list[dict], now: int) -> tuple[list[str], int]:
+    """INSERT statements for one snapshot, and how many rows had bad pricing_json."""
+    stmts: list[str] = []
+    skipped = 0
+    # ptcg_price_history has no lang column, and EN/JA rows can share a
+    # card_id with the same (source, variant) (ebay, manual). Keep only the
+    # first row per series (rows come in rowid order, the order the old
+    # same-timestamp INSERT OR IGNORE resolved it); otherwise the change-only
+    # check compares EN against JA and the series flips every week.
+    seen: set[tuple[str, str, str]] = set()
+    for row in rows:
+        cid = row["card_id"]
+        pj_str = row.get("pricing_json")
+        try:
+            pj = json.loads(pj_str) if pj_str else None
+        except (json.JSONDecodeError, TypeError):
+            skipped += 1
+            continue
+        if not isinstance(pj, dict):
+            skipped += 1
+            continue
+
+        for source, variant, usd, eur in history_rows(pj):
+            if (cid, source, variant) in seen:
+                continue
+            seen.add((cid, source, variant))
+            stmts.append(_insert(cid, source, variant, usd, eur, now))
+    return stmts, skipped
+
+
 def history_rows(pj: dict) -> list[tuple[str, str, float | None, float | None]]:
     """(source, variant, price_usd, price_eur) tuples to snapshot for one card."""
     out: list[tuple[str, str, float | None, float | None]] = []
@@ -169,7 +192,8 @@ def history_rows(pj: dict) -> list[tuple[str, str, float | None, float | None]]:
 
 def _fetch_priced_rows() -> list[dict]:
     sql = ("SELECT card_id, lang, pricing_json FROM ptcg_cards "
-           "WHERE pricing_json IS NOT NULL AND pricing_json != '{}' AND pricing_json != ''")
+           "WHERE pricing_json IS NOT NULL AND pricing_json != '{}' AND pricing_json != '' "
+           "ORDER BY rowid")
     out = subprocess.run(
         WRANGLER + ["--remote", "--json", "--command", sql],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -186,13 +210,18 @@ def _fetch_priced_rows() -> list[dict]:
 def _insert(card_id: str, source: str, variant: str,
             price_usd: float | None, price_eur: float | None,
             recorded_at: int) -> str:
+    cid, src, var = _esc(card_id), _esc(source), _esc(variant)
+    usd = 'NULL' if price_usd is None else repr(float(price_usd))
+    eur = 'NULL' if price_eur is None else repr(float(price_eur))
     return (
         "INSERT OR IGNORE INTO ptcg_price_history "
         "(card_id, source, variant, recorded_at, price_usd, price_eur) "
-        f"VALUES ({_esc(card_id)}, {_esc(source)}, {_esc(variant)}, "
-        f"{recorded_at}, "
-        f"{'NULL' if price_usd is None else price_usd}, "
-        f"{'NULL' if price_eur is None else price_eur});"
+        f"SELECT {cid}, {src}, {var}, {recorded_at}, {usd}, {eur} "
+        "WHERE NOT EXISTS (SELECT 1 FROM ("
+        "SELECT price_usd, price_eur FROM ptcg_price_history "
+        f"WHERE card_id = {cid} AND source = {src} AND variant = {var} "
+        "ORDER BY recorded_at DESC LIMIT 1) AS last "
+        f"WHERE last.price_usd IS {usd} AND last.price_eur IS {eur});"
     )
 
 

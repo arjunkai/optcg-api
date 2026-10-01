@@ -26,9 +26,10 @@ name: Weekly PTCG Refresh
 
 on:
   schedule:
-    # Mondays 08:00 UTC. Two hours after the OPTCG scrape (06:00 UTC)
-    # so they don't contend on the same Cloudflare API quota.
-    - cron: '0 8 * * 1'
+    # Tuesdays 08:00 UTC, the day after the OPTCG scrape (Mondays 06:00).
+    # D1's daily limits (100k rows written, 5M read on Workers Free) are
+    # per UTC day, so the two imports each get their own day's budget.
+    - cron: '0 8 * * 2'
   workflow_dispatch: {}
 
 jobs:
@@ -55,7 +56,7 @@ jobs:
 
       # ptcg-fetch.js is resumable — it reads existing cards-{lang}.json
       # and only re-fetches missing cards. Without a persisted cache,
-      # every Monday would re-pull all ~23k cards from TCGdex. Cache
+      # every week would re-pull all ~23k cards from TCGdex. Cache
       # rolls forward each run via the unique key + restore-keys prefix.
       - name: Restore TCGdex cache
         uses: actions/cache@v4
@@ -401,8 +402,8 @@ jobs:
       # Snapshot every (card, source, variant) price into ptcg_price_history
       # AFTER manual overrides so the chart shows the final canonical
       # value per week. INSERT OR IGNORE keys on (card_id, source,
-      # variant, recorded_at) — safe to retry, weekly cron naturally
-      # plots one snapshot per Monday.
+      # variant, recorded_at) — safe to retry. A point is written only when
+      # a series' price changed since its latest row.
       - name: Setup Python (for snapshot)
         uses: actions/setup-python@v5
         with:
@@ -436,15 +437,17 @@ jobs:
           echo "## PTCG coverage" >> "$GITHUB_STEP_SUMMARY"
           echo "EN priced: $EN | JA priced: $JA" >> "$GITHUB_STEP_SUMMARY"
 
-      # Drop the Worker's R2 snapshots of the bulk index routes so the new
-      # data serves right away (src/snapshot.js; they'd otherwise wait out a
-      # 6h TTL). The zone purge below is a no-op on workers.dev.
-      - name: Purge Worker R2 snapshots
+      # Rebuild the R2 snapshots behind /pokemon/cards/index and /all from
+      # the fresh D1 data (src/snapshotDefs.js). Requests never build them
+      # (Workers Free's 10 ms CPU limit), so this is what makes the refresh
+      # visible; each colo's edge copy turns over within 1h. ~90k D1 reads.
+      - name: Build Worker R2 snapshots
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: node scripts/purge-snapshots.mjs
+          OPTCG_ALLOW_REMOTE: '1'
+        run: node scripts/build-snapshots.mjs --only pokemon
 
       # Purge Cloudflare edge cache for /cards/index and /pokemon/cards/*
       # responses so the fresh D1 data is visible to users immediately

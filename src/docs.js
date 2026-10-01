@@ -96,7 +96,7 @@ export function registerDocsRoutes(app) {
               trigger: { type: 'string', nullable: true },
               price: { type: 'number', nullable: true, description: 'Market price in USD.' },
               tcg_ids: { type: 'array', items: { type: 'integer' }, nullable: true, description: 'TCGPlayer product IDs.' },
-              price_updated_at: { type: 'integer', nullable: true, description: 'Unix timestamp of last refresh.' },
+              price_updated_at: { type: 'integer', nullable: true, description: 'Unix timestamp of the last price change.' },
               price_source: {
                 type: 'string',
                 nullable: true,

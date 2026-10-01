@@ -30,9 +30,11 @@ function escSql(val) {
 const cards = JSON.parse(readFileSync('data/don_cards.json', 'utf-8'));
 
 const lines = [];
+// Skip unchanged DONs: a no-op upsert still counts as D1 rows written (plus
+// the price/price_updated_at indexes). price_updated_at = "price last changed".
 for (const c of cards) {
   lines.push(
-    `INSERT INTO cards (id, parallel, name, rarity, category, image_url, price, tcg_ids, price_updated_at) VALUES (${escSql(c.id)}, 0, ${escSql(c.name)}, ${escSql(c.rarity)}, ${escSql(c.category)}, ${escSql(c.image_url)}, ${escSql(c.price)}, ${escSql(JSON.stringify(c.tcg_ids))}, ${escSql(c.price_updated_at)}) ON CONFLICT(id) DO UPDATE SET name=excluded.name, image_url=excluded.image_url, price=excluded.price, tcg_ids=excluded.tcg_ids, price_updated_at=excluded.price_updated_at;`
+    `INSERT INTO cards (id, parallel, name, rarity, category, image_url, price, tcg_ids, price_updated_at) VALUES (${escSql(c.id)}, 0, ${escSql(c.name)}, ${escSql(c.rarity)}, ${escSql(c.category)}, ${escSql(c.image_url)}, ${escSql(c.price)}, ${escSql(JSON.stringify(c.tcg_ids))}, ${escSql(c.price_updated_at)}) ON CONFLICT(id) DO UPDATE SET name=excluded.name, image_url=excluded.image_url, price=excluded.price, tcg_ids=excluded.tcg_ids, price_updated_at=excluded.price_updated_at WHERE name IS NOT excluded.name OR image_url IS NOT excluded.image_url OR price IS NOT excluded.price OR tcg_ids IS NOT excluded.tcg_ids;`
   );
 }
 
@@ -48,10 +50,11 @@ for (const c of cards) {
 // so without this DON history froze at the one-time backfill and the
 // PriceHistoryChart never rendered for DON. INSERT OR IGNORE dedupes within
 // a snapshot (matches the regular importer's pattern + unique card_id+captured_at).
+// Like import-prices-d1.js, a point is added only when the price changed.
 for (const c of cards) {
   if (c.price === null || c.price === undefined) continue;
   lines.push(
-    `INSERT OR IGNORE INTO card_price_history (card_id, price, captured_at) VALUES (${escSql(c.id)}, ${escSql(c.price)}, ${escSql(c.price_updated_at)});`
+    `INSERT OR IGNORE INTO card_price_history (card_id, price, captured_at) SELECT ${escSql(c.id)}, ${escSql(c.price)}, ${escSql(c.price_updated_at)} WHERE ${escSql(c.price)} IS NOT (SELECT price FROM card_price_history WHERE card_id = ${escSql(c.id)} ORDER BY captured_at DESC LIMIT 1);`
   );
 }
 

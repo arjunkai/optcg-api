@@ -35,55 +35,24 @@ function normLang(raw) {
   return SUPPORTED_LANGS.has(raw) ? raw : 'en';
 }
 
-export function registerCardRoutes(app) {
-  // Single-shot "every card" endpoint. Exists so the OPBindr client can
-  // warm its registry with ONE request instead of 6 paginated ones.
-  //
-  // Served from an R2 snapshot shared by every colo, fronted by the edge
-  // cache (see snapshot.js), so the full-table D1 read runs a few times a
-  // day at most instead of once per colo per hour.
-  //
-  // MUST be registered BEFORE /cards/:card_id or Hono will route 'all'
-  // into that param and return a 404 for a non-existent card with
-  // id 'ALL'.
-  app.get('/cards/all', (c) => serveSnapshot(c, 'cards-all-v1', async () => {
-    // EN-only by design. This is the legacy single-shot fallback the client
-    // uses only when /cards/index 404s (older deployments). The language-aware
-    // path is /cards/index (both names inline) + /cards/:id?lang= for details.
-    const { results } = await c.env.DB.prepare(
-      'SELECT * FROM cards ORDER BY id ASC'
-    ).all();
-    return { count: results.length, data: parseCards(results) };
-  }));
+// Snapshot builders for /cards/all and /cards/index (src/snapshotDefs.js).
+// /cards/all pages through cards by id; ?1 is the last id seen, ?2 the page size.
+export const CARDS_ALL_PAGE_SQL = 'SELECT * FROM cards WHERE id > ?1 ORDER BY id ASC LIMIT ?2';
 
-  // Slim index. Same shape spirit as /cards/all but drops the heavy
-  // fields (effect text, trigger text, image_url, tcg_ids, sets
-  // membership, price_updated_at) so the OPBindr client can warm its
-  // registry with ~80% fewer bytes. CardEnlargeModal fetches the full
-  // shape via /cards/:id when it actually opens a card.
-  //
-  // dominant_color is reserved for the Phase 3 placeholder work — null
-  // for now so the JSON shape doesn't have to change when the column
-  // gets populated.
-  //
-  // Same R2 snapshot + edge cache strategy as /cards/all.
-  //
-  // MUST be registered BEFORE /cards/:card_id (same reason as /cards/all).
-  app.get('/cards/index', (c) => serveSnapshot(c, 'cards-index-v1', async () => {
-    // Both names inline + per-language availability, so the OPBindr client
-    // holds ONE row per card (not a row per language). This is the OPTCG
-    // language model: One Piece is one catalog with translated display, so
-    // the registry never needs a per-language key and EN/JA can't collide.
-    //   - name      : EN canonical display (COALESCE so a pre-016 row without
-    //                 a translation still resolves to cards.name)
-    //   - name_ja   : Japanese display, NULL when no JA translation exists
-    //   - name_en   : English search alias (= EN name; for JA-exclusives it's
-    //                 the romaji/EN alias the importer stored on the JA row)
-    //   - langs     : which languages this card is available in. A JA-exclusive
-    //                 has no EN translation -> ['ja'] -> hidden in EN binders;
-    //                 an EN-only card (e.g. Treasure Rare) -> ['en'].
-    //   - price_ja  : real JA market price (never the EN price on a JA card).
-    const { results } = await c.env.DB.prepare(`
+// Both names inline + per-language availability, so the OPBindr client
+// holds ONE row per card (not a row per language). This is the OPTCG
+// language model: One Piece is one catalog with translated display, so
+// the registry never needs a per-language key and EN/JA can't collide.
+//   - name      : EN canonical display (COALESCE so a pre-016 row without
+//                 a translation still resolves to cards.name)
+//   - name_ja   : Japanese display, NULL when no JA translation exists
+//   - name_en   : English search alias (= EN name; for JA-exclusives it's
+//                 the romaji/EN alias the importer stored on the JA row)
+//   - langs     : which languages this card is available in. A JA-exclusive
+//                 has no EN translation -> ['ja'] -> hidden in EN binders;
+//                 an EN-only card (e.g. Treasure Rare) -> ['en'].
+//   - price_ja  : real JA market price (never the EN price on a JA card).
+export const CARDS_INDEX_SQL = `
       SELECT c.id, c.category, c.rarity, c.colors, c.attributes, c.types,
              c.cost, c.power, c.parallel, c.variant_type, c.finish,
              c.price, c.price_source, c.price_ja, c.price_source_ja,
@@ -96,39 +65,60 @@ export function registerCardRoutes(app) {
       LEFT JOIN card_translations en ON en.card_id = c.id AND en.language = 'en'
       LEFT JOIN card_translations ja ON ja.card_id = c.id AND ja.language = 'ja'
       ORDER BY c.id ASC
-    `).all();
+`;
 
-    const slim = results.map(row => {
-      const langs = [];
-      if (row.has_en) langs.push('en');
-      if (row.has_ja) langs.push('ja');
-      if (langs.length === 0) langs.push('en'); // defensive: pre-backfill rows
-      return {
-        id: row.id,
-        name: row.name,
-        name_ja: row.name_ja,
-        name_en: row.name_en === row.name ? null : row.name_en, // null when alias == display (EN rows)
-        langs,
-        category: row.category,
-        rarity: row.rarity,
-        colors: row.colors ? JSON.parse(row.colors) : null,
-        attributes: row.attributes ? JSON.parse(row.attributes) : null,
-        types: row.types ? JSON.parse(row.types) : null,
-        cost: row.cost,
-        power: row.power,
-        parallel: Boolean(row.parallel),
-        variant_type: row.variant_type,
-        finish: row.finish,
-        price: row.price,
-        price_source: row.price_source,
-        price_ja: row.price_ja,
-        price_source_ja: row.price_source_ja,
-        dominant_color: null, // Phase 3 fills this in once the D1 column exists
-      };
-    });
+export function slimCardRow(row) {
+  const langs = [];
+  if (row.has_en) langs.push('en');
+  if (row.has_ja) langs.push('ja');
+  if (langs.length === 0) langs.push('en'); // defensive: pre-backfill rows
+  return {
+    id: row.id,
+    name: row.name,
+    name_ja: row.name_ja,
+    name_en: row.name_en === row.name ? null : row.name_en, // null when alias == display (EN rows)
+    langs,
+    category: row.category,
+    rarity: row.rarity,
+    colors: row.colors ? JSON.parse(row.colors) : null,
+    attributes: row.attributes ? JSON.parse(row.attributes) : null,
+    types: row.types ? JSON.parse(row.types) : null,
+    cost: row.cost,
+    power: row.power,
+    parallel: Boolean(row.parallel),
+    variant_type: row.variant_type,
+    finish: row.finish,
+    price: row.price,
+    price_source: row.price_source,
+    price_ja: row.price_ja,
+    price_source_ja: row.price_source_ja,
+    dominant_color: null, // Phase 3 fills this in once the D1 column exists
+  };
+}
 
-    return { count: slim.length, data: slim };
-  }));
+export function registerCardRoutes(app) {
+  // Single-shot "every card" endpoint. Exists so the OPBindr client can
+  // warm its registry with ONE request instead of 6 paginated ones.
+  //
+  // Served from an R2 snapshot shared by every colo, fronted by the edge
+  // cache (see snapshot.js). scripts/build-snapshots.mjs builds it outside
+  // requests (EN-only by design: the legacy single-shot fallback the client
+  // uses only when /cards/index 404s; see CARDS_ALL_PAGE_SQL).
+  //
+  // MUST be registered BEFORE /cards/:card_id or Hono will route 'all'
+  // into that param and return a 404 for a non-existent card with
+  // id 'ALL'.
+  app.get('/cards/all', (c) => serveSnapshot(c, 'cards-all-v1'));
+
+  // Slim index. Same shape spirit as /cards/all but drops the heavy
+  // fields (effect text, trigger text, image_url, tcg_ids, sets
+  // membership, price_updated_at) so the OPBindr client can warm its
+  // registry with ~80% fewer bytes. CardEnlargeModal fetches the full
+  // shape via /cards/:id when it actually opens a card. Built by
+  // CARDS_INDEX_SQL + slimCardRow below.
+  //
+  // MUST be registered BEFORE /cards/:card_id (same reason as /cards/all).
+  app.get('/cards/index', (c) => serveSnapshot(c, 'cards-index-v1'));
 
   // Price history for a single card. Range caps the window in seconds so we
   // don't return the entire history by default. Rows come from the
