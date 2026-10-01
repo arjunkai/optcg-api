@@ -5,8 +5,8 @@
 // Default: active keys only. Pass --all to include revoked rows.
 //
 // Usage:
-//   node scripts/list-keys.mjs
-//   node scripts/list-keys.mjs --all
+//   npm run key:list
+//   npm run key:list -- --all
 
 import { parseArgs } from 'node:util';
 import { d1Query } from './_d1.mjs';

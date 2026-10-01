@@ -7,7 +7,7 @@
 // recipient. The raw key is never recoverable after this.
 //
 // Usage:
-//   node scripts/issue-key.mjs --owner "Name" [--contact "..."] [--notes "..."] [--tier standard|partner] [--scopes "optcg,ptcg"]
+//   npm run key:issue -- --owner "Name" [--contact "..."] [--notes "..."] [--tier standard|partner] [--scopes "optcg,ptcg"]
 //
 // Default scope is 'optcg' only. Pass --scopes "optcg,ptcg" to also
 // grant Pokemon TCG endpoint access. Add 'admin' only for your own
@@ -89,5 +89,5 @@ console.log(`  Tier:     ${values.tier}`);
 console.log(`  Scopes:   ${normalisedScopes}`);
 console.log('---------------------------------------------------------------');
 console.log('  [!] Copy the key now. It will NOT be shown again.');
-console.log(`  To revoke later: node scripts/revoke-key.mjs ${keyPrefix}`);
+console.log(`  To revoke later: npm run key:revoke -- ${keyPrefix}`);
 console.log('===============================================================');

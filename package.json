@@ -7,9 +7,10 @@
     "test": "node --test tests/*.test.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "key:issue": "node scripts/issue-key.mjs",
-    "key:list": "node scripts/list-keys.mjs",
-    "key:revoke": "node scripts/revoke-key.mjs"
+    "key:issue": "node scripts/remote.mjs scripts/issue-key.mjs",
+    "key:list": "node scripts/remote.mjs scripts/list-keys.mjs",
+    "key:revoke": "node scripts/remote.mjs scripts/revoke-key.mjs",
+    "key:set-tier": "node scripts/remote.mjs scripts/set-tier.mjs"
   },
   "dependencies": {
     "hono": "^4.0.0"

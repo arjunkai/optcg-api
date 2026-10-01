@@ -7,7 +7,7 @@
 // on the next request (no Worker redeploy needed).
 //
 // Usage:
-//   node scripts/revoke-key.mjs opt_aBcDeFgH
+//   npm run key:revoke -- opt_aBcDeFgH
 
 import { d1Execute, sqlLit } from './_d1.mjs';
 
