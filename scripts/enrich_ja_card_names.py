@@ -35,13 +35,14 @@ from __future__ import annotations
 import csv
 import io
 import json
-import subprocess
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+from scripts.wrangler_retry import run_wrangler, wrangler_json_rows
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -293,16 +294,14 @@ def main() -> None:
         print("2. Querying D1 for JA imageless cards...")
         sql = ("SELECT card_id, name FROM ptcg_cards WHERE lang='ja' "
                "AND image_high IS NULL ORDER BY card_id")
-    out = subprocess.run(
-        WRANGLER + ["--remote", "--json", "--command", sql],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-    )
-    if out.returncode != 0:
-        # The error is at the end; the start is wrangler's config banner.
-        print("D1 query failed:", ((out.stderr or "") + (out.stdout or ""))[-1500:])
+    out = run_wrangler(WRANGLER + ["--remote", "--json", "--command", sql])
+    try:
+        rows = wrangler_json_rows(out)
+    except ValueError as e:
+        # wrangler_json_rows reports the JSON error from stdout, not the
+        # config-banner WARNING on stderr that used to be all we printed.
+        print("D1 query failed:", e)
         sys.exit(1)
-    start = (out.stdout or "").find("[")
-    rows = json.loads(out.stdout[start:])[0]["results"]
     print(f"   {len(rows)} JA cards needing enrichment")
 
     # Resume support: load existing cache (unless --rebuild)
