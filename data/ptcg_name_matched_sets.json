@@ -1,0 +1,5 @@
+{
+  "_doc": "TCGdex set id → pokemontcg-data set id, for reprint collections where pokemontcg numbers each card by its original print (me55c #4 is Charizard, TCGdex 30th-c-004 is Genesect EX). scripts/import-pokemontcg-d1.js pairs these by normalized name instead of number. Never add them to ptcg_set_mapping.json: that file is number-matched, and fetch-pokemontcg-prices.js reads it too.",
+  "30th-c": "me55c",
+  "cel25cc": "cel25c"
+}

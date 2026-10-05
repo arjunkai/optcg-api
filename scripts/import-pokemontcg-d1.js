@@ -11,7 +11,9 @@
  *
  * Reads:
  *   - data/pokemontcg-data/cards/en/{setId}.json (per-set arrays)
- *   - data/ptcg_set_mapping.json (TCGdex_set → pokemontcg_set)
+ *   - data/ptcg_set_mapping.json (TCGdex_set → pokemontcg_set, by number)
+ *   - data/ptcg_name_matched_sets.json (reprint collections, by name)
+ *   - data/ptcg_cache/cards-en.json (TCGdex names for the name match)
  *
  * Writes batched UPDATE SQL to scripts/pokemontcg_batches/, executes via
  * wrangler d1 execute --remote.
@@ -29,6 +31,10 @@ import { platform } from 'os';
 const npx = platform() === 'win32' ? 'npx.cmd' : 'npx';
 const PKM_DIR = 'data/pokemontcg-data/cards/en';
 const MAPPING_PATH = 'data/ptcg_set_mapping.json';
+const NAME_MATCHED_PATH = 'data/ptcg_name_matched_sets.json';
+const TCGDEX_CACHE_PATH = 'data/ptcg_cache/cards-en.json';
+// Low-res eBay listing thumbnails a one-off backfill left on some reprints.
+const EBAY_THUMB = 'https://i.ebayimg.com/%/s-l225.%';
 const BATCH_DIR = 'scripts/pokemontcg_batches';
 const BATCH_SIZE = 500;
 const DB_NAME = 'optcg-cards';
@@ -44,6 +50,12 @@ if (!existsSync(MAPPING_PATH)) {
 if (!existsSync(BATCH_DIR)) mkdirSync(BATCH_DIR, { recursive: true });
 
 const mapping = JSON.parse(readFileSync(MAPPING_PATH, 'utf-8'));
+const nameMatched = existsSync(NAME_MATCHED_PATH)
+  ? JSON.parse(readFileSync(NAME_MATCHED_PATH, 'utf-8'))
+  : {};
+const tcgdexCache = existsSync(TCGDEX_CACHE_PATH)
+  ? JSON.parse(readFileSync(TCGDEX_CACHE_PATH, 'utf-8'))
+  : {};
 
 let totalUpdates = 0;
 
@@ -104,9 +116,60 @@ for (const tcgdexId of tcgdexSetsToProcess) {
     }
   }
 
+  writeBatches(tcgdexId, stmts);
+}
+
+// Reprint collections are numbered by each card's original print in
+// pokemontcg-data, so they pair by name against the TCGdex disk cache.
+for (const [tcgdexId, pkmId] of Object.entries(nameMatched)) {
+  if (tcgdexId.startsWith('_') || (tcgdexSetFilter && tcgdexId !== tcgdexSetFilter)) continue;
+  const path = `${PKM_DIR}/${pkmId}.json`;
+  if (!existsSync(path)) {
+    console.log(`[${tcgdexId} → ${pkmId}] no cards file in submodule, skipping`);
+    continue;
+  }
+  const tcgdexCards = Object.values(tcgdexCache)
+    .filter((c) => c.set?.id === tcgdexId)
+    .sort((a, b) => String(a.localId).localeCompare(String(b.localId), 'en', { numeric: true }));
+  if (tcgdexCards.length === 0) {
+    console.log(`[${tcgdexId}] not in ${TCGDEX_CACHE_PATH}, skipping (run ptcg-fetch.js)`);
+    continue;
+  }
+  const pkmCards = JSON.parse(readFileSync(path, 'utf-8'))
+    .sort((a, b) => String(a.number).localeCompare(String(b.number), 'en', { numeric: true }));
+  console.log(`\n[${tcgdexId} ⇢ ${pkmId}] ${tcgdexCards.length} cards, matched by name`);
+
+  // Same-name cards (the two halves of a LEGEND) pair in number order.
+  const byName = groupBy(pkmCards, (c) => normName(c.name));
+  const stmts = [];
+  for (const [name, group] of groupBy(tcgdexCards, (c) => normName(c.name))) {
+    const pkmGroup = byName.get(name) || [];
+    if (pkmGroup.length !== group.length) {
+      console.log(`[${tcgdexId}] ${group.map((c) => c.id).join(', ')}: ${pkmGroup.length} pokemontcg match(es), skipping`);
+      continue;
+    }
+    group.forEach((t, i) => {
+      const { large, small } = pkmGroup[i].images ?? {};
+      if (!large || !small) return;
+      // Fills gaps, and replaces 225px eBay thumbnails with the real scan.
+      const weak = (col) => `(${col} IS NULL OR ${col} LIKE ${escSql(EBAY_THUMB)})`;
+      stmts.push(
+        `UPDATE ptcg_cards SET image_high = CASE WHEN ${weak('image_high')} THEN ${escSql(large)} ELSE image_high END, ` +
+        `image_low = CASE WHEN ${weak('image_low')} THEN ${escSql(small)} ELSE image_low END ` +
+        `WHERE card_id = ${escSql(t.id)} AND lang = 'en' AND (${weak('image_high')} OR ${weak('image_low')});`,
+      );
+    });
+  }
+  writeBatches(tcgdexId, stmts);
+}
+
+console.log(`\nDone. ${totalUpdates} update statements.`);
+if (dryRun) console.log('(Dry run — no D1 writes.)');
+
+function writeBatches(tcgdexId, stmts) {
   if (stmts.length === 0) {
     console.log(`[${tcgdexId}] no updates`);
-    continue;
+    return;
   }
   totalUpdates += stmts.length;
 
@@ -129,9 +192,27 @@ for (const tcgdexId of tcgdexSetsToProcess) {
   }
 }
 
-console.log(`\nDone. ${totalUpdates} update statements.`);
-if (dryRun) console.log('(Dry run — no D1 writes.)');
-
+// "Genesect EX" / "Genesect-EX", "Umbreon ☆" / "Umbreon ★", "Gardevoir ex δ",
+// "Palkia" / "Palkia LV.X" all name the same reprint.
+function normName(name) {
+  return String(name)
+    .toLowerCase()
+    .replace(/[☆★]/g, ' star ')
+    .replace(/δ/g, ' ')
+    .replace(/\blv\.x\b/g, ' ')
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function groupBy(items, key) {
+  const out = new Map();
+  for (const item of items) {
+    const k = key(item);
+    if (!out.has(k)) out.set(k, []);
+    out.get(k).push(item);
+  }
+  return out;
+}
 function escSql(val) {
   if (val === null || val === undefined) return 'NULL';
   if (typeof val === 'number') return Number.isFinite(val) ? String(val) : 'NULL';
