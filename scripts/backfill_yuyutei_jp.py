@@ -36,7 +36,7 @@ from scripts.lib.yuyutei_scraper import (
     build_card_id_candidates,
     get_jpy_to_usd_rate,
     load_mapping,
-    scrape_set_listing,
+    find_set_listing,
 )
 from scripts.wrangler_retry import run_wrangler
 
@@ -81,7 +81,7 @@ def main() -> None:
             if not yuyutei_code:
                 continue
             time.sleep(REQ_INTERVAL_S)
-            cards = scrape_set_listing(client, yuyutei_code)
+            yuyutei_code, cards = find_set_listing(client, yuyutei_code)
             if cards is None:
                 sets_skipped += 1
                 print(f"  [{tcgdex_id} -> {yuyutei_code}] not on Yuyutei (likely vintage), skipping")
@@ -107,9 +107,14 @@ def main() -> None:
                         "updated_at": int(time.time()),
                     }).replace("'", "''")
                     for cid in card_id_candidates:
-                        sql_lines.append(price_update_sql(cid, payload))
+                        sql_lines.append(price_update_sql(cid, payload, card["price_jpy"]))
 
     print(f"\nSets: {sets_seen} parsed, {sets_skipped} skipped (not on Yuyutei)")
+    if sets_skipped and sets_seen == 0:
+        # Every set "missing" means Yuyutei refused us (it answers GitHub's
+        # runners with non-200s), not that no set exists. Fail so CI shows it.
+        print("Yuyutei answered no set listing at all: blocked? Run this locally.")
+        sys.exit(1)
     print(f"Images to write: {images_filled}")
     print(f"Prices to write: {prices_filled}")
     print(f"SQL statements: {len(sql_lines)}")
@@ -147,7 +152,7 @@ def image_update_sql(card_id: str, image_url: str) -> str:
     )
 
 
-def price_update_sql(card_id: str, payload_json: str) -> str:
+def price_update_sql(card_id: str, payload_json: str, price_jpy: int) -> str:
     cid = card_id.replace("'", "''")
     # Patch into pricing_json under .yuyutei; flip price_source unless
     # the row is already manual / pokemontcg / tcgplayer (the three
@@ -170,7 +175,11 @@ def price_update_sql(card_id: str, payload_json: str) -> str:
         f"  ELSE 'yuyutei' "
         f"END "
         f"WHERE card_id = '{cid}' AND lang = 'ja' "
-        f"AND (price_source IS NULL OR price_source IN ('cardmarket', 'ebay_jp', 'pricecharting'));"
+        # 'yuyutei' rows refresh too (they used to be skipped, so every
+        # Yuyutei price froze at its first fetch), but only when the yen
+        # price moved: an unchanged row costs no D1 write.
+        f"AND (price_source IS NULL OR price_source IN ('cardmarket', 'ebay_jp', 'pricecharting', 'yuyutei')) "
+        f"AND json_extract(pricing_json, '$.yuyutei.price_jpy') IS NOT {int(price_jpy)};"
     )
 
 

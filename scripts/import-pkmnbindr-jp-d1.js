@@ -22,6 +22,14 @@
  *
  * Reads:
  *   - data/ptcg_jp_set_mapping.json (TCGdex_set → pkmnbindr_set_id)
+ *   - pkmnbindr's sets.json, to follow set renames. pkmnbindr renamed
+ *     67 of the mapped ids (s8b_ja → swsh8b_ja, e1_ja → ecard1_ja, …)
+ *     and those sets silently stopped filling. The mapping file keeps its
+ *     old values because backfill_yuyutei_jp.py derives Yuyutei set codes
+ *     from them; renames are resolved here, per run, instead.
+ *
+ * A Japanese-named pkmnbindr card only fills a row whose name matches
+ * (spaces ignored), so a wrong set resolution can't attach the wrong image.
  *
  * Writes batched UPDATEs to scripts/pokemontcg_batches/, executes via
  * `wrangler d1 execute --remote`. COALESCE-only — never overwrites an
@@ -43,6 +51,9 @@ const BATCH_DIR = 'scripts/pokemontcg_batches';
 const BATCH_SIZE = 500;
 const DB_NAME = 'optcg-cards';
 const PKMNBINDR_BASE = 'https://www.pkmnbindr.com/data/jpNew/cards';
+const PKMNBINDR_SETS = 'https://www.pkmnbindr.com/data/jpNew/sets/sets.json';
+// Hiragana, katakana, CJK ideographs: a Japanese name we can compare.
+const JA_SCRIPT = /[぀-ヿ一-鿿]/;
 // Polite client-side throttle — pkmnbindr is a single small site, the
 // total weekly volume is ~160 fetches × ~350KB. 500ms spacing keeps us
 // under any sane rate limit.
@@ -67,15 +78,32 @@ let lastReqAt = 0;
 
 const tcgdexSets = tcgdexSetFilter ? [tcgdexSetFilter] : Object.keys(mapping);
 
+await throttle();
+const pkmSets = await fetchJson(PKMNBINDR_SETS);
+const pkmIds = new Set((pkmSets || []).map((s) => s.id));
+const pkmByCode = new Map();
+for (const s of pkmSets || []) {
+  const code = String(s.code || '').toUpperCase();
+  if (code) pkmByCode.set(code, pkmByCode.has(code) ? null : s.id); // null = ambiguous
+}
+
 for (const tcgdexId of tcgdexSets) {
-  const pkmId = mapping[tcgdexId];
-  if (!pkmId) {
+  const mapped = mapping[tcgdexId];
+  if (!mapped) {
     console.log(`[${tcgdexId}] no mapping, skipping`);
     continue;
   }
+  const pkmId = resolvePkmId(tcgdexId, mapped);
+  if (!pkmId) {
+    console.log(`[${tcgdexId} → ${mapped}] not in pkmnbindr's set list, skipping`);
+    continue;
+  }
+  if (pkmId !== mapped) console.log(`[${tcgdexId}] pkmnbindr renamed ${mapped} → ${pkmId}`);
+  // A pattern-guessed rename is only trusted where the name guard applies.
+  const jaNamesOnly = pkmId !== mapped && pkmByCode.get(tcgdexId.toUpperCase()) !== pkmId;
 
   await throttle();
-  const cards = await fetchSet(pkmId);
+  const cards = await fetchJson(`${PKMNBINDR_BASE}/${pkmId}.json`);
   if (!cards) continue;
   const withImages = cards.filter((c) => extractImageUrls(c).large);
   console.log(`[${tcgdexId} → ${pkmId}] ${cards.length} cards, ${withImages.length} with image`);
@@ -99,9 +127,16 @@ for (const tcgdexId of tcgdexSets) {
     ]);
 
     const lowFallback = small || large;
+    // Same card, same name: M6-098/099 are swapped between the two sources,
+    // and a mis-resolved set would match numbers but not names.
+    const jaName = JA_SCRIPT.test(c.name || '');
+    if (jaNamesOnly && !jaName) continue;
+    const nameGuard = jaName
+      ? ` AND REPLACE(REPLACE(name, ' ', ''), '　', '') = ${escSql(squash(c.name))}`
+      : '';
     for (const candidate of candidates) {
       stmts.push(
-        `UPDATE ptcg_cards SET image_high = COALESCE(image_high, ${escSql(large)}), image_low = COALESCE(image_low, ${escSql(lowFallback)}) WHERE card_id = ${escSql(candidate)} AND lang = 'ja' AND (image_high IS NULL OR image_low IS NULL);`,
+        `UPDATE ptcg_cards SET image_high = COALESCE(image_high, ${escSql(large)}), image_low = COALESCE(image_low, ${escSql(lowFallback)}) WHERE card_id = ${escSql(candidate)} AND lang = 'ja' AND (image_high IS NULL OR image_low IS NULL)${nameGuard};`,
       );
     }
   }
@@ -130,8 +165,29 @@ for (const tcgdexId of tcgdexSets) {
 console.log(`\nDone. ${totalUpdates} update statements across ${totalCardsWithImages} priced cards.`);
 if (dryRun) console.log('(Dry run — no D1 writes.)');
 
-async function fetchSet(pkmId) {
-  const url = `${PKMNBINDR_BASE}/${pkmId}.json`;
+// The mapped id when pkmnbindr still has it; otherwise its current id for
+// the same set: by set code (unique codes only), then by the renames seen
+// in 2026 (S8b → swsh8b, E1 → ecard1, PMCG1 → base1, SV-P → svp).
+function resolvePkmId(tcgdexId, mapped) {
+  if (pkmIds.size === 0 || pkmIds.has(mapped)) return mapped;
+  const byCode = pkmByCode.get(tcgdexId.toUpperCase());
+  if (byCode) return byCode;
+  const t = tcgdexId.toLowerCase().replace(/[-+]/g, '');
+  const guesses = [
+    `${t}_ja`,
+    t.replace(/^s(\d)/, 'swsh$1') + '_ja',
+    t.replace(/^e(\d)$/, 'ecard$1') + '_ja',
+    t.replace(/^pmcg(\d)$/, 'base$1') + '_ja',
+  ];
+  return guesses.find((g) => pkmIds.has(g)) || null;
+}
+
+function squash(s) {
+  return String(s).replace(/[ 　]/g, '');
+}
+
+async function fetchJson(url) {
+  const pkmId = url.split('/').pop().replace(/\.json$/, '');
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const res = await fetch(url, {
