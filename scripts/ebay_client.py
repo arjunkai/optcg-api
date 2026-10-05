@@ -172,6 +172,40 @@ class EbayAccessDeniedError(RuntimeError):
     """
 
 
+# Browse's errorId for "Currently, the <X> marketplace is not supported".
+EBAY_ERROR_MARKETPLACE_UNSUPPORTED = 12019
+
+
+class EbayMarketplaceUnsupportedError(Exception):
+    """Browse rejected the marketplace itself (HTTP 409, errorId 12019:
+    "Currently, the EBAY-JP marketplace is not supported").
+
+    Every later call to the same marketplace fails the same way, so a
+    per-card loop must stop instead of skipping card after card. Not a
+    RuntimeError on purpose: callers catch RuntimeError per card to skip
+    one bad search, and this must get past those handlers.
+    """
+
+    def __init__(self, marketplace_id: str, detail: str) -> None:
+        self.marketplace_id = marketplace_id
+        super().__init__(
+            f"eBay Browse does not support marketplace {marketplace_id} "
+            f"(errorId {EBAY_ERROR_MARKETPLACE_UNSUPPORTED}): {detail[:300]}"
+        )
+
+
+def _raise_if_marketplace_unsupported(resp: httpx.Response, marketplace_id: str) -> None:
+    if resp.status_code != 409:
+        return
+    try:
+        errors = resp.json().get("errors") or []
+    except ValueError:
+        return
+    if any(e.get("errorId") == EBAY_ERROR_MARKETPLACE_UNSUPPORTED for e in errors
+           if isinstance(e, dict)):
+        raise EbayMarketplaceUnsupportedError(marketplace_id, resp.text)
+
+
 class EbayClient:
     """eBay API client with cached client-credentials OAuth, per-scope.
 
@@ -271,7 +305,9 @@ class EbayClient:
 
         marketplace_id selects the regional site. Common: EBAY_US (USD),
         EBAY_GB, EBAY_DE, EBAY_FR. EBAY_JP is REJECTED with HTTP 409 by
-        Browse — use search_sales() with EBAY_JP instead.
+        Browse (errorId 12019), raised as EbayMarketplaceUnsupportedError
+        so loops stop on the first card — use search_sales() with EBAY_JP
+        instead.
         """
         token = self.get_token(SCOPE_BROWSE)
         params: dict[str, str] = {"q": query, "limit": str(limit)}
@@ -293,6 +329,7 @@ class EbayClient:
             if resp.status_code == 429:
                 time.sleep(2 ** attempt)
                 continue
+            _raise_if_marketplace_unsupported(resp, marketplace_id)
             raise RuntimeError(f"eBay search failed: {resp.status_code} {resp.text[:300]}")
         raise RuntimeError(f"eBay search rate limited after {max_retries} attempts")
 
@@ -325,6 +362,7 @@ class EbayClient:
         resp = httpx.get(f"{BROWSE_GET_ITEMS_URL}/", params=params, headers=headers, timeout=30)
         if resp.status_code == 200:
             return resp.json().get("items", []) or []
+        _raise_if_marketplace_unsupported(resp, marketplace_id)
         raise RuntimeError(f"eBay getItems failed: {resp.status_code} {resp.text[:300]}")
 
     # ── Marketplace Insights API (Limited Release) ──
