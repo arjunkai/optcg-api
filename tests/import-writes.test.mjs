@@ -137,3 +137,22 @@ test('name_en backfill only fills NULLs', () => {
   const src = readFileSync('scripts/backfill-ptcg-name-en.js', 'utf8');
   assert.match(src, /AND lang = 'ja' AND name_en IS NULL;`/);
 });
+
+test('ptcg-import-d1: a JA card already stored under another id format is not inserted twice', () => {
+  const jaSet = { ...SET, id: 'M4' };
+  const jaCard = (localId) => ({ ...card(`M4-${localId}`, null), localId, set: { id: 'M4' } });
+  const files = (stored) => ({
+    'data/ptcg_cache/sets-ja.json': [jaSet],
+    'data/ptcg_cache/cards-ja.json': { 'M4-001': jaCard('001'), 'M4-002': jaCard('002') },
+    'data/ja_ids.json': stored,
+  });
+  const run = (stored) => dryRun('scripts/ptcg-import-d1.js', files(stored), 'scripts/ptcg_batches', ['--lang=ja', '--ja-ids=data/ja_ids.json']);
+
+  // pkmnbindr seeded "M4-1" first: TCGdex's "M4-001" is the same card.
+  const sql = run([{ card_id: 'M4-1', set_id: 'M4', local_id: '1' }]);
+  assert.doesNotMatch(sql, /'M4-001'/);
+  assert.match(sql, /'M4-002'/);
+  // Once both exist (or after a dedupe keeps "M4-001"), TCGdex updates its own row.
+  const both = run([{ card_id: 'M4-1', set_id: 'M4', local_id: '1' }, { card_id: 'M4-001', set_id: 'M4', local_id: '001' }]);
+  assert.match(both, /'M4-001'/);
+});
