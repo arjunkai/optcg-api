@@ -137,3 +137,31 @@ test('name_en backfill only fills NULLs', () => {
   const src = readFileSync('scripts/backfill-ptcg-name-en.js', 'utf8');
   assert.match(src, /AND lang = 'ja' AND name_en IS NULL;`/);
 });
+
+test('import-pokemontcg-d1: reprint sets pair by name, replace eBay thumbnails, then write nothing', () => {
+  const db = freshDb();
+  db.exec(`INSERT INTO ptcg_cards (card_id, lang, set_id, local_id, name, updated_at, image_high, image_low) VALUES
+    ('30th-c-001', 'en', '30th-c', '001', 'Charizard', 0, NULL, NULL),
+    ('30th-c-004', 'en', '30th-c', '004', 'Genesect EX', 0, 'https://i.ebayimg.com/images/g/x/s-l225.jpg', 'https://i.ebayimg.com/images/g/x/s-l225.jpg'),
+    ('30th-c-019', 'en', '30th-c', '019', 'Darkrai & Cresselia LEGEND', 0, NULL, NULL),
+    ('30th-c-020', 'en', '30th-c', '020', 'Darkrai & Cresselia LEGEND', 0, NULL, NULL),
+    ('30th-c-030', 'en', '30th-c', '030', 'Magikarp', 0, 'https://keep/hand-picked.png', 'https://keep/hand-picked.png')`);
+  const t = (localId, name) => ({ id: `30th-c-${localId}`, localId, name, set: { id: '30th-c' } });
+  const p = (number, name) => ({ id: `me55c-${number}`, number, name, images: { small: `s/${number}`, large: `l/${number}` } });
+  const sql = dryRun('scripts/import-pokemontcg-d1.js', {
+    'data/ptcg_set_mapping.json': {},
+    'data/ptcg_name_matched_sets.json': { '30th-c': 'me55c' },
+    'data/ptcg_cache/cards-en.json': Object.fromEntries([t('001', 'Charizard'), t('004', 'Genesect EX'), t('019', 'Darkrai & Cresselia LEGEND'), t('020', 'Darkrai & Cresselia LEGEND'), t('030', 'Magikarp')].map((c) => [c.id, c])),
+    // Numbered by original print: #4 is Charizard here, not Genesect.
+    'data/pokemontcg-data/cards/en/me55c.json': [p('4', 'Charizard'), p('11', 'Genesect-EX'), p('100', 'Darkrai & Cresselia LEGEND'), p('99', 'Darkrai & Cresselia LEGEND'), p('30', 'Magikarp')],
+  }, 'scripts/pokemontcg_batches');
+
+  assert.equal(apply(db, sql), 4, 'two gaps, one eBay thumbnail, both LEGEND halves; the hand-picked image is kept');
+  assert.equal(apply(db, sql), 0, 'second run: nothing');
+  const img = (id) => db.prepare(`SELECT image_high FROM ptcg_cards WHERE card_id = ?`).get(id).image_high;
+  assert.equal(img('30th-c-001'), 'l/4');
+  assert.equal(img('30th-c-004'), 'l/11');
+  assert.equal(img('30th-c-019'), 'l/99');
+  assert.equal(img('30th-c-020'), 'l/100');
+  assert.equal(img('30th-c-030'), 'https://keep/hand-picked.png');
+});
