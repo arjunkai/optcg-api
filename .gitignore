@@ -14,6 +14,7 @@ data/*
 !data/ptcg_pocket_set_mapping.json
 !data/ptcg_jp_set_mapping.json
 !data/ptcg_malie_set_mapping.json
+!data/ptcg_name_matched_sets.json
 !data/ptcg_manual_prices.json
 data/don_resolution_audit.json
 .claude/

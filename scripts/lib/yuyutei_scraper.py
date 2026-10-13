@@ -114,6 +114,21 @@ def scrape_set_listing(client: httpx.Client, setcode: str) -> list[dict] | None:
     return cards
 
 
+def find_set_listing(client: httpx.Client, setcode: str) -> tuple[str, list[dict] | None]:
+    """scrape_set_listing, also trying Yuyutei's zero-padded code. Yuyutei
+    moved to padded set codes in 2026 (sv9 → sv09, m2a → m02a, s8b → s08b);
+    the old code still answers 200 with an empty listing. Returns the code
+    that worked (for listing URLs) and its cards."""
+    cards = scrape_set_listing(client, setcode)
+    padded = re.sub(r"^([a-z]+)(\d)(?!\d)", r"\g<1>0\2", setcode)
+    if not cards and padded != setcode:
+        time.sleep(0.5)
+        retry = scrape_set_listing(client, padded)
+        if retry:
+            return padded, retry
+    return setcode, cards
+
+
 def build_card_id_candidates(tcgdex_id: str, number: str) -> list[str]:
     """TCGdex's JA card_id is `{setid}-{localid}`. Yuyutei's number is
     unpadded numeric. Try the same multi-padding pattern as our other

@@ -57,6 +57,12 @@ async function fetchLanguage(lang, { setFilter, concurrency }) {
     const fullSet = await fetchJson(`https://api.tcgdex.net/v2/${lang}/sets/${encodeURIComponent(summary.id)}`);
     fullSets.push(fullSet);
   }
+  // A --set run merges into the cached list instead of replacing it, so a
+  // partial fetch doesn't drop every other set from sets-{lang}.json.
+  if (setFilter && existsSync(setsPath)) {
+    const cached = JSON.parse(readFileSync(setsPath, 'utf-8'));
+    fullSets.unshift(...cached.filter((s) => s.id !== setFilter));
+  }
   writeFileSync(setsPath, JSON.stringify(fullSets, null, 2));
   console.log(`[${lang}] wrote ${fullSets.length} sets → ${setsPath}`);
 

@@ -3,9 +3,11 @@ Third-tier price source: fill cards neither TCGPlayer nor dotgg listed by
 searching the eBay Browse API and taking a consensus median of active
 listings.
 
-Does NOT overwrite TCGPlayer/dotgg/manual prices. Only writes to rows where
-price IS NULL. Every write sets price_source='ebay' so it's auditable and
-fully rollback-able.
+Does NOT overwrite TCGPlayer/dotgg/manual prices. Writes to rows where
+price IS NULL, and re-prices rows it priced before (price_source='ebay'):
+they used to be skipped, so every eBay price froze at its first fetch.
+A row is only written when its price moves. Every write sets
+price_source='ebay' so it's auditable and fully rollback-able.
 
 Safety model:
   - Read-only probe: python -m scripts.backfill_prices_ebay --dry-run
@@ -41,11 +43,11 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def query_unpriced_cards(local: bool) -> list[dict]:
-    """Returns [{id, name}, ...] for every card with no price."""
+    """Returns [{id, name}, ...] for every card with no price or an eBay one."""
     flag = "--local" if local else "--remote"
     result = subprocess.run(
         WRANGLER_CMD + [flag, "--json", "--command",
-                        "SELECT id, name FROM cards WHERE price IS NULL"],
+                        "SELECT id, name FROM cards WHERE price IS NULL OR price_source = 'ebay'"],
         capture_output=True, text=True, shell=(sys.platform == "win32"),
     )
     if result.returncode != 0:
@@ -93,7 +95,8 @@ def build_update_sql(matches: list[dict], now: int) -> list[str]:
             f"price={m['price']}, "
             f"price_updated_at={now}, "
             f"price_source='ebay' "
-            f"WHERE id='{card_id}' AND price IS NULL;"
+            f"WHERE id='{card_id}' AND (price IS NULL OR price_source = 'ebay') "
+            f"AND price IS NOT {m['price']};"
         )
     return lines
 

@@ -230,6 +230,8 @@ by automated runs — every script that touches `price_source` checks
 - Image URL: `https://images.pokemontcg.io/{setId}/{number}_hires.png`
 - **Pricing: NONE.** Verified 0 / 20,202 cards have `tcgplayer.prices` in the static dump. The dump dropped pricing fields some time after 2019; only the live API has them now.
 - Script: `scripts/import-pokemontcg-d1.js` — COALESCE-fills `image_high` / `image_low` for cards in mapped sets where TCGdex has no image
+- TCGdex splits subsets into their own sets (`swsh4.5sv`, `swsh9tg`, `swsh12.5gg`…), so each needs its own entry in `ptcg_set_mapping.json`; the numbering matches.
+- Reprint collections (`30th-c` → `me55c`, `cel25cc` → `cel25c`) are numbered by each card's original print in pokemontcg-data, so they live in `data/ptcg_name_matched_sets.json` and pair by normalized name against the TCGdex disk cache. They also replace leftover 225px eBay thumbnails. Never put them in `ptcg_set_mapping.json`: number matching would put Charizard's image on Genesect.
 - Updated weekly via `git submodule update --remote data/pokemontcg-data`
 
 #### 3. Live `api.pokemontcg.io` (Scrydex) — English prices
