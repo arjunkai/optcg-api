@@ -110,9 +110,26 @@ for (const lang of langs) {
   console.log(`\n[${lang}] ${sets.length} sets, ${cards.length} cards`
     + (droppedSets || droppedCards ? ` (dropped ${droppedSets} pocket sets, ${droppedCards} pocket cards)` : ''));
 
+  // A JA card pkmnbindr or Yuyutei seeded first lives under another id
+  // format ("M4-1" vs TCGdex's "M4-001"). Upserting the TCGdex id would add
+  // a second row for the same card (4,359 such pairs as of 2026-10-05, the
+  // regression 20d2766 fixed once), so a TCGdex card whose twin exists is
+  // skipped until the pair is merged by dedupe_ja_duplicates.py.
+  const twins = lang === 'ja' ? loadJaTwins() : null;
+  const skipped = [];
   const stmts = [];
   for (const set of sets) stmts.push(setUpsert(set, lang));
-  for (const card of cards) stmts.push(cardUpsert(card, lang));
+  for (const card of cards) {
+    const twin = twins && !twins.ids.has(card.id) && twins.byKey.get(twinKey(card.set?.id, card.localId));
+    if (twin) {
+      skipped.push(`${card.id} (exists as ${twin})`);
+      continue;
+    }
+    stmts.push(cardUpsert(card, lang));
+  }
+  if (skipped.length) {
+    console.log(`[${lang}] skipped ${skipped.length} card(s) already stored under another id, e.g. ${skipped.slice(0, 3).join(', ')}`);
+  }
 
   totalSetRows += sets.length;
   totalCardRows += cards.length;
@@ -138,6 +155,40 @@ console.log(`\nDone. ${totalSetRows} set rows, ${totalCardRows} card rows across
 if (dryRun) console.log('(Dry run — no D1 writes.)');
 
 // ── Mappers ───────────────────────────────────────────────────────────────
+
+// Same physical card across id formats: case-insensitive set, unpadded number.
+function twinKey(setId, localId) {
+  return `${String(setId).toUpperCase()}|${String(localId).replace(/^0+(?=.)/, '')}`;
+}
+
+// Every stored JA row, read once (~28k rows read; a per-card NOT EXISTS
+// would read the whole set for each of them). --ja-ids=FILE supplies the
+// rows instead (tests); a dry run without it skips the guard.
+function loadJaTwins() {
+  let rows;
+  if (args['ja-ids']) {
+    rows = JSON.parse(readFileSync(args['ja-ids'], 'utf-8'));
+  } else if (dryRun) {
+    console.log('[ja] dry run without --ja-ids: twin guard off');
+    return null;
+  } else {
+    const out = execFileSync(
+      npx,
+      ['wrangler', 'd1', 'execute', DB_NAME, '--remote', '--json',
+       '--command', `"SELECT card_id, set_id, local_id FROM ptcg_cards WHERE lang = 'ja'"`],
+      { encoding: 'utf-8', shell: true, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    rows = JSON.parse(out.slice(out.indexOf('[')))[0].results;
+  }
+  const ids = new Set();
+  const byKey = new Map();
+  for (const r of rows) {
+    ids.add(r.card_id);
+    const key = twinKey(r.set_id, r.local_id);
+    if (!byKey.has(key)) byKey.set(key, r.card_id);
+  }
+  return { ids, byKey };
+}
 
 function setUpsert(set, lang) {
   const cols = [
