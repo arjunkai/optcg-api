@@ -61,6 +61,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from scripts.bulbapedia import BULBAPEDIA_API, USER_AGENT, describe_http_error
 from scripts.wrangler_retry import WRANGLER_MAX_ATTEMPTS, run_wrangler
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -69,8 +70,6 @@ if hasattr(sys.stdout, "reconfigure"):
 OUT_DIR = Path("scripts/insert_promo_rows")
 BATCH_SIZE = 100  # rows per multi-statement file
 WRANGLER = ["node", "./node_modules/wrangler/bin/wrangler.js", "d1", "execute", "optcg-cards"]
-BULBAPEDIA_API = "https://bulbapedia.bulbagarden.net/w/api.php"
-USER_AGENT = "OPBindr-Bot/1.0 (contact: arjun@neuroplexlabs.com)"
 RATE_LIMIT_SECONDS = 1.1
 TARGET_LANG = "ja"
 
@@ -308,7 +307,7 @@ def _api_get(params: dict) -> dict:
         with urllib.request.urlopen(req, timeout=30) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        print(f"   HTTP {e.code} from Bulbapedia: {e.reason}")
+        print(f"   {describe_http_error(e, 'backfill_mp_catalog')}")
         sys.exit(1)
     finally:
         time.sleep(RATE_LIMIT_SECONDS)

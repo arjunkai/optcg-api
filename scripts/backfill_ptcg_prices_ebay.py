@@ -49,7 +49,8 @@ from typing import Iterable
 import httpx
 
 from scripts.ebay_client import (
-    EbayClient, EbayAccessDeniedError, apply_title_filters, consensus_price,
+    EbayClient, EbayAccessDeniedError, EbayMarketplaceUnsupportedError,
+    apply_title_filters, consensus_price,
 )
 
 
@@ -101,7 +102,8 @@ CURSOR_FLUSH_EVERY = 100
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--lang", choices=["en", "ja"], required=True,
-                    help="Card language to backfill (en→EBAY_US, ja→EBAY_JP)")
+                    help="Card language to backfill. Both search EBAY_US; "
+                         "Browse rejects EBAY_JP (see step 2 below)")
     ap.add_argument("--dry-run", action="store_true", help="Build SQL, don't run it")
     ap.add_argument("--limit", type=int, default=None,
                     help="Cap the number of cards queried (smoke tests)")
@@ -176,10 +178,20 @@ def main() -> None:
     last_processed_card_id: str | None = None
     translate_client = client if args.with_translation_fallback else None
     for i, card in enumerate(cards, start=1):
-        result = price_card(client, card, args.lang, marketplace, target_currency,
-                            fx_jpy_to_usd, min_count=args.min_count,
-                            verbose_skip=(args.dry_run and len(cards) <= 100),
-                            translate_client=translate_client)
+        try:
+            result = price_card(client, card, args.lang, marketplace, target_currency,
+                                fx_jpy_to_usd, min_count=args.min_count,
+                                verbose_skip=(args.dry_run and len(cards) <= 100),
+                                translate_client=translate_client)
+        except EbayMarketplaceUnsupportedError as exc:
+            # Every remaining card would get the same 409. Stop, write
+            # nothing, and put the cursor back where this run started so
+            # the cards it skipped aren't counted as visited.
+            print(f"   ABORT at card {i}/{len(cards)}: {exc}")
+            if use_cursor:
+                print(f"   rolling cursor back to: {start_cursor or '(unset)'}")
+                write_cursor(cursor_source, start_cursor)
+            sys.exit(1)
         if result:
             matches.append(result)
             print(f"   [{i}/{len(cards)}] {card['card_id']}: ${result['price_usd']} "

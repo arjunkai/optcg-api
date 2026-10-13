@@ -42,6 +42,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from scripts.wrangler_retry import run_wrangler, wrangler_error, wrangler_json_rows
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 os.chdir(REPO_ROOT)
 
@@ -55,6 +57,9 @@ WRANGLER_BIN = ["node", "./node_modules/wrangler/bin/wrangler.js", "d1", "execut
 OUT_DIR = Path("data/backfill/hareruya")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 RAW_CACHE = Path("data/poc_hareruya/products_raw.jsonl")  # PoC's cache, reused
+# data/ is gitignored, so on a fresh CI checkout the PoC's directory doesn't
+# exist and writing the cache after the walk raised FileNotFoundError.
+RAW_CACHE.parent.mkdir(parents=True, exist_ok=True)
 
 # 18 series-level collections covering every Pokemon TCG era.
 COLLECTIONS = [
@@ -122,15 +127,12 @@ def normalize_lid(lid: str) -> list[str]:
 
 
 def query_d1(query: str) -> list[dict]:
-    out = subprocess.run(
-        WRANGLER_BIN + ["--remote", "--json", "--command", query],
-        capture_output=True, text=True, encoding="utf-8", check=True,
-        cwd=str(REPO_ROOT),
-    )
-    data = json.loads(out.stdout)
-    if not data or not data[0].get("success"):
-        return []
-    return data[0]["results"] or []
+    out = run_wrangler(WRANGLER_BIN + ["--remote", "--json", "--command", query])
+    try:
+        return wrangler_json_rows(out)
+    except ValueError as e:
+        print(f"D1 query failed: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def fetch_jpy_to_usd() -> float:
@@ -342,7 +344,7 @@ def main():
         capture_output=True, text=True, encoding="utf-8", cwd=str(REPO_ROOT),
     )
     if apply.returncode != 0:
-        print(f"D1 apply FAILED: {apply.stderr[:500]}", file=sys.stderr)
+        print(f"D1 apply FAILED: {wrangler_error(apply)[-500:]}", file=sys.stderr)
         sys.exit(1)
     # Print the meta block for visibility on rows_written count
     if "rows_written" in apply.stdout:

@@ -46,7 +46,11 @@ from pathlib import Path
 
 import httpx
 
-from scripts.ebay_client import EbayClient, apply_title_filters
+from scripts.ebay_client import (
+    EbayClient,
+    EbayMarketplaceUnsupportedError,
+    apply_title_filters,
+)
 from scripts.wrangler_retry import run_wrangler
 
 
@@ -96,8 +100,17 @@ def main() -> None:
     print("3. Fetching listing images via eBay...")
     matches: list[dict] = []
     for i, card in enumerate(cards, start=1):
-        result = find_image(client, card, args.lang, marketplace,
-                            min_listings=args.min_listings)
+        try:
+            result = find_image(client, card, args.lang, marketplace,
+                                min_listings=args.min_listings)
+        except EbayMarketplaceUnsupportedError as exc:
+            # Browse has rejected EBAY_JP since 2026-05; searching the rest
+            # of the cohort would spend one call per card on the same 409
+            # (~3.5k a week) against the app's daily Browse quota.
+            print(f"   ABORT at card {i}/{len(cards)}: {exc}")
+            print("   No images written. JA cards would need EBAY_US searches "
+                  "(as backfill_ptcg_prices_ebay does) for this step to work.")
+            sys.exit(1)
         if result:
             matches.append(result)
             print(f"   [{i}/{len(cards)}] {card['card_id']}: "

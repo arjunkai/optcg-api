@@ -166,11 +166,21 @@ jobs:
       # species hash lookup (no network per card), so this finishes in
       # seconds-to-minutes even when cold. ptcg_cards.name_en gets
       # repopulated by the next step.
+      # Reads the JA card list from D1, so it needs the Cloudflare token
+      # like every other D1 step. Without it wrangler exits with "it's
+      # necessary to set a CLOUDFLARE_API_TOKEN" and the next step has no
+      # map to push.
       - name: Enrich JA name_en map (incremental)
         continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: python -m scripts.enrich_ja_card_names --all
 
+      # Skipped (not failed) when there is no map: neither the step above
+      # nor the restored cache produced one.
       - name: Push name_en updates to D1
+        if: hashFiles('data/ja_card_id_to_en_name.json') != ''
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -185,6 +195,10 @@ jobs:
       # TCGdex's UPSERT-shaped weekly import overwrites name + types +
       # hp + image_high once it picks the cards up. Cheap (~100 rows
       # ceiling) and idempotent.
+      # The three Bulbapedia steps below have got 403 from Cloudflare on
+      # GitHub-hosted runners since 2026-09-14 (they worked through
+      # 09-07; the same User-Agent still gets 200 from a home IP). They
+      # stop on the first request and say so; run them locally to apply.
       - name: Catch up M-P promo set rows (Bulbapedia master setlist)
         continue-on-error: true
         env:
@@ -312,6 +326,9 @@ jobs:
           EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
         run: python -m scripts.backfill_ptcg_images_ebay --lang=en
 
+      # Browse rejects EBAY_JP (409, errorId 12019), so this step now stops
+      # on the first card with that message instead of spending ~3.5k eBay
+      # calls on the same error. It needs EBAY_US searches to do anything.
       - name: Backfill JA images via eBay (JP)
         continue-on-error: true
         timeout-minutes: 60
@@ -432,7 +449,10 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           SQL="SELECT lang, COUNT(*) AS total, SUM(CASE WHEN price_source IS NOT NULL THEN 1 ELSE 0 END) AS priced FROM ptcg_cards GROUP BY lang ORDER BY lang"
-          OUT=$(npx wrangler d1 execute optcg-cards --remote --json --command "$SQL" 2>&1 || echo '{}')
+          # stdout only: wrangler's config WARNING goes to stderr (left to the
+          # log), and merging it in with 2>&1 broke json.load, so the summary
+          # and Discord reported 0 priced every week.
+          OUT=$(npx wrangler d1 execute optcg-cards --remote --json --command "$SQL" || echo '{}')
           echo "$OUT"
           # Pull priced counts per lang into individual outputs for the notify step.
           EN=$(echo "$OUT" | python3 -c "import json,sys; d=json.load(sys.stdin); rows=d[0]['results'] if isinstance(d,list) else d.get('results',[]); print(next((r['priced'] for r in rows if r.get('lang')=='en'),0))" 2>/dev/null || echo 0)
