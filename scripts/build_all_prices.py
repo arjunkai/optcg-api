@@ -32,6 +32,7 @@ Outputs:
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -137,6 +138,42 @@ def correct_shared_tcg_ids(assign: dict, cards: dict, products: dict, rows_by_nu
     return fixes
 
 
+SET_TEXT_RE = re.compile(r"\[[A-Z]{2,4}-?\d")  # "-ROMANCE DAWN- [OP-01]": a set, not a promo label
+
+
+def _norm_label(s: str | None) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def match_promo_labels(cards: dict, dotgg: dict, rows_by_number: dict) -> dict:
+    """card_id -> tcg_id where the official card-set label names the product.
+
+    For promos the official site's card-set text says how the card was
+    distributed ("CS 25-26 Celebration Pack"), and TCGPlayer uses the same
+    words as the product label. dotgg's tcg_id sometimes points at a sibling
+    print instead: EB01-014_p1 (official: CS 25-26 Celebration Pack, $67.58)
+    was mapped to the Tournament Pack print ($0.50). Matches only when exactly
+    one product for the number has that exact label and only one card of the
+    family carries the label. dotgg's CardSets field is the official text.
+    """
+    by_family: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for cid in cards:
+        label = (dotgg.get(cid) or {}).get("CardSets") or ""
+        if label and not SET_TEXT_RE.search(label):
+            by_family[cards[cid].get("base_id") or cid].append((cid, _norm_label(label)))
+    out: dict[str, int] = {}
+    for base, members in by_family.items():
+        counts = Counter(lab for _, lab in members)
+        for cid, lab in members:
+            if counts[lab] != 1:
+                continue
+            hits = {r["tcg_id"] for r in rows_by_number.get(base, [])
+                    if _norm_label(r["name_suffix"]) == lab and r["price"] is not None}
+            if len(hits) == 1:
+                out[cid] = hits.pop()
+    return out
+
+
 def main() -> None:
     if not DOTGG_FILE.exists():
         print(f"ERROR: {DOTGG_FILE} not found. Run `python scripts/fetch_dotgg_catalog.py` first.")
@@ -200,7 +237,16 @@ def main() -> None:
         tid = next((t for t in ids if t in tcg_products), None)
         if tid is not None and tcg_products[tid]["price"] is not None:
             assign[card_id] = tid
+    labeled = match_promo_labels(by_id, dotgg, rows_by_number)
+    for cid, tid in sorted(labeled.items()):
+        if assign.get(cid) != tid:
+            old = assign.get(cid)
+            print(f"  promo label {cid}: {old} (${tcg_products[old]['price'] if old else '-'}) "
+                  f"-> {tid} (${tcg_products[tid]['price']})")
+    assign.update(labeled)
     fixes = correct_shared_tcg_ids(assign, by_id, tcg_products, rows_by_number)
+    for cid, tid in labeled.items():
+        fixes.setdefault(cid, tid)  # label matches are final; write them like fixes
     print(f"Relabeled {len(fixes)} dotgg mapping(s) that shared a tcg_id within a base:")
     for cid, new in sorted(fixes.items()):
         print(f"  {cid}: {assign[cid]} (${tcg_products[assign[cid]]['price']}) "

@@ -80,3 +80,41 @@ def test_two_candidates_keeps_dotgg():
     rows = [prod(1, "OP09-001", None), prod(2, "OP09-001", "Reprint"), prod(3, "OP09-001", "Reprint")]
     cards = [card("OP09-001"), card("OP09-001_r1", "reprint")]
     assert run(cards, {"OP09-001": 1, "OP09-001_r1": 1}, rows) == {}
+
+
+# ── match_promo_labels: official card-set label -> TCGPlayer product label ──
+
+from build_all_prices import match_promo_labels  # noqa: E402
+
+
+def _rbn(rows):
+    out = {}
+    for r in rows:
+        out.setdefault(r["number"], []).append(r)
+    return out
+
+
+def test_sanji_celebration_pack_matches_its_labeled_product():
+    rows = [prod(544542, "EB01-014", None, price=0.87),
+            prod(607976, "EB01-014", "Tournament Pack 2025 Vol. 1", price=0.50),
+            prod(607971, "EB01-014", "Winner Pack 2025 Vol. 1", price=8.80),
+            prod(649632, "EB01-014", "CS 25-26 Celebration Pack", price=67.58)]
+    cards = dict([card("EB01-014"), card("EB01-014_p1", "alt_art")])
+    dotgg = {"EB01-014": {"CardSets": "-Memorial Collection- [EB-01]"},
+             "EB01-014_p1": {"CardSets": "CS 25-26 Celebration Pack"}}
+    assert match_promo_labels(cards, dotgg, _rbn(rows)) == {"EB01-014_p1": 649632}
+
+
+def test_set_text_is_not_a_promo_label():
+    rows = [prod(1, "OP07-109", None)]
+    cards = dict([card("OP07-109_p1", "alt_art")])
+    dotgg = {"OP07-109_p1": {"CardSets": "-500 YEARS IN THE FUTURE- [OP-07]"}}
+    assert match_promo_labels(cards, dotgg, _rbn(rows)) == {}
+
+
+def test_two_cards_with_the_same_label_are_ambiguous():
+    rows = [prod(9, "OP01-016", "CS 25-26 Celebration Pack")]
+    cards = dict([card("OP01-016_p5", "alt_art"), card("OP01-016_p6", "alt_art")])
+    dotgg = {"OP01-016_p5": {"CardSets": "CS 25-26 Celebration Pack"},
+             "OP01-016_p6": {"CardSets": "CS 25-26 Celebration Pack"}}
+    assert match_promo_labels(cards, dotgg, _rbn(rows)) == {}
