@@ -68,11 +68,11 @@ const withPageSize = (d, size) => ({ ...d, page: { ...d.page, size } });
 // What the route handlers built before snapshots moved out of requests.
 function oldBuild(db, name) {
   const all = (sql, ...p) => db.prepare(sql).all(...p);
-  if (name === 'cards-all-v1') {
+  if (name === 'cards-all-v2') {
     const rows = all('SELECT * FROM cards ORDER BY id ASC');
     return { count: rows.length, data: parseCards(rows) };
   }
-  if (name === 'cards-index-v1') {
+  if (name === 'cards-index-v2') {
     const rows = all(CARDS_INDEX_SQL);
     return { count: rows.length, data: rows.map(slimCardRow) };
   }
@@ -161,7 +161,7 @@ test('every snapshot name a route serves has a def', () => {
 });
 
 test('--only selects by group, exact name or prefix, and rejects unknown patterns', () => {
-  assert.deepEqual(selectSnapshots(['optcg']).map((d) => d.name), ['cards-all-v1', 'cards-index-v1']);
+  assert.deepEqual(selectSnapshots(['optcg']).map((d) => d.name), ['cards-all-v2', 'cards-index-v2']);
   assert.equal(selectSnapshots(['pokemon']).length, 8);
   assert.deepEqual(selectSnapshots(['reps-set-v1']).map((d) => d.name), ['reps-set-v1']);
   assert.equal(selectSnapshots(['pokemon-index-*']).length, 4);
@@ -208,44 +208,44 @@ function fakeC(r2, { refresh = false } = {}) {
 beforeEach(() => installCaches());
 
 test('serves the R2 snapshot and puts it in the edge cache', async () => {
-  const r2 = fakeR2({ 'snapshots/cards-index-v1.json': '{"count":1}' });
+  const r2 = fakeR2({ 'snapshots/cards-index-v2.json': '{"count":1}' });
   const c = fakeC(r2);
-  const res = await serveSnapshot(c, 'cards-index-v1');
+  const res = await serveSnapshot(c, 'cards-index-v2');
   assert.equal(res.status, 200);
   assert.equal(await res.text(), '{"count":1}');
   await c.ctx.drain();
-  const again = await serveSnapshot(fakeC(fakeR2()), 'cards-index-v1');
+  const again = await serveSnapshot(fakeC(fakeR2()), 'cards-index-v2');
   assert.equal(await again.text(), '{"count":1}', 'second request is an edge hit');
 });
 
 test('falls back to last-known-good, without edge-caching it', async () => {
-  const r2 = fakeR2({ 'snapshots/lkg/cards-index-v1.json': '{"lkg":true}' });
+  const r2 = fakeR2({ 'snapshots/lkg/cards-index-v2.json': '{"lkg":true}' });
   const c = fakeC(r2);
-  const res = await serveSnapshot(c, 'cards-index-v1');
+  const res = await serveSnapshot(c, 'cards-index-v2');
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('Cache-Control'), 'public, max-age=60');
   assert.equal(await res.text(), '{"lkg":true}');
   await c.ctx.drain();
-  const next = await serveSnapshot(fakeC(fakeR2()), 'cards-index-v1');
+  const next = await serveSnapshot(fakeC(fakeR2()), 'cards-index-v2');
   assert.equal(next.status, 503, 'lkg copy was not pinned in the edge cache');
 });
 
 test('503s when nothing was ever built', async () => {
-  const res = await serveSnapshot(fakeC(fakeR2()), 'cards-index-v1');
+  const res = await serveSnapshot(fakeC(fakeR2()), 'cards-index-v2');
   assert.equal(res.status, 503);
   assert.equal(res.headers.get('Cache-Control'), 'no-store');
   assert.equal(res.headers.get('Retry-After'), '300');
-  assert.deepEqual(await res.json(), { error: 'snapshot_unavailable', snapshot: 'cards-index-v1' });
+  assert.deepEqual(await res.json(), { error: 'snapshot_unavailable', snapshot: 'cards-index-v2' });
 });
 
 test('refresh=1 skips the edge cache and re-reads R2', async () => {
-  const first = fakeC(fakeR2({ 'snapshots/cards-index-v1.json': '"old"' }));
-  await (await serveSnapshot(first, 'cards-index-v1')).text();
+  const first = fakeC(fakeR2({ 'snapshots/cards-index-v2.json': '"old"' }));
+  await (await serveSnapshot(first, 'cards-index-v2')).text();
   await first.ctx.drain();
-  const r2 = fakeR2({ 'snapshots/cards-index-v1.json': '"new"' });
-  const res = await serveSnapshot(fakeC(r2, { refresh: true }), 'cards-index-v1');
+  const r2 = fakeR2({ 'snapshots/cards-index-v2.json': '"new"' });
+  const res = await serveSnapshot(fakeC(r2, { refresh: true }), 'cards-index-v2');
   assert.equal(await res.text(), '"new"');
-  assert.deepEqual(r2.gets, ['snapshots/cards-index-v1.json']);
+  assert.deepEqual(r2.gets, ['snapshots/cards-index-v2.json']);
 });
 
 test('loadSnapshotData parses and memoizes; null when missing', async () => {

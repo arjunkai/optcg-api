@@ -35,7 +35,7 @@ const SELF_CACHED = new Set([
 // reads a param MUST be added (the tests in tests/edge-cache-keys.test.mjs
 // check this list against the route handlers).
 const CARD_FILTERS = [
-  'set_id', 'color', 'category', 'rarity', 'name', 'parallel', 'variant_type', 'finish',
+  'set_id', 'color', 'category', 'rarity', 'name', 'parallel', 'variant_type', 'finish', 'stamp',
   'min_power', 'max_power', 'min_cost', 'max_cost', 'min_price', 'max_price',
   'sort', 'order', 'page', 'page_size',
 ];

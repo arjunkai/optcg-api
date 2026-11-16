@@ -57,6 +57,16 @@ for (const [cardId, entry] of Object.entries(prices)) {
   lines.push(
     `UPDATE cards SET price=${price}, tcg_ids=${tcgIds}, price_updated_at=${escSql(entry.price_updated_at)}, price_source=${source} WHERE id=${id} AND (price_source IS NULL OR price_source != 'manual') AND (price IS NOT ${price} OR tcg_ids IS NOT ${tcgIds} OR price_source IS NOT ${source});`
   );
+  // Stamp tags (migration 022): which print the price comes from. Their own
+  // UPDATE so a label change never bumps price_updated_at, and manual-priced
+  // cards still get tagged. Writes only when a tag moved.
+  if ('print_label' in entry) {
+    const label = escSql(entry.print_label ?? null);
+    const stamp = escSql(entry.stamp ?? null);
+    lines.push(
+      `UPDATE cards SET print_label=${label}, stamp=${stamp} WHERE id=${id} AND (print_label IS NOT ${label} OR stamp IS NOT ${stamp});`
+    );
+  }
   // Price history for the chart: a point only when the price differs from
   // the card's latest one (a PK range read), so a flat price adds nothing.
   // The chart draws the line between the points it gets. INSERT OR IGNORE

@@ -39,13 +39,13 @@ const ptcgPage = (sql, lang, size) => ({
 
 export const SNAPSHOTS = [
   {
-    name: 'cards-all-v1',
+    name: 'cards-all-v2',
     group: 'optcg',
     page: { sql: CARDS_ALL_PAGE_SQL, params: (cursor, n) => [cursor, n], key: 'id', start: '', size: 1000 },
     build: (rows) => list(parseCards(rows)),
   },
   {
-    name: 'cards-index-v1',
+    name: 'cards-index-v2',
     group: 'optcg',
     sql: [CARDS_INDEX_SQL],
     build: (rows) => list(rows.map(slimCardRow)),

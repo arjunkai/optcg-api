@@ -143,6 +143,14 @@ Synthetic IDs `DON-001` .. `DON-195`, `category='Don'`. Built by deduping TCGPla
   fails with code 7500). Apply to prod with
   `node scripts/compact-ptcg-price-history.mjs` (chunked; needs Workers Paid
   headroom), not by running the file. `--discard` drops the history instead.
+- migration 022: `cards.print_label` (TCGPlayer label of the stamped print a
+  row is priced from) + `cards.stamp` (championship / winner / finalist /
+  treasure_cup / regional / store / judge / tournament / anniversary /
+  pre_release / release_event / top_players / collection / event) + index.
+  Written by `import-prices-d1.js` from `build_all_prices.py` (`stamp_for`);
+  served on card routes, `?stamp=` filter, snapshots `cards-*-v2`. Must be
+  applied before the code that reads it deploys. See
+  `docs/stamped-prints-plan.md`.
 
 ## Pricing
 - `price` REAL, `foil_price` REAL (unused), `delta_price`/`delta_7d_price` (future), `tcg_ids` TEXT (JSON array), `price_updated_at` INTEGER, `price_source` TEXT
