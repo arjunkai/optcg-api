@@ -122,3 +122,28 @@ def test_catalog_fetch_gives_up_loudly_after_max_retries(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="after 4 attempts"):
         catalog.fetch_json("http://dotgg.test")
+
+
+# ── IncompleteRead: stream dropped mid-body (run 42639473174, 2026-11-09) ──
+
+def _incomplete():
+    import http.client
+    return http.client.IncompleteRead(b"", 100)
+
+
+def test_catalog_fetch_retries_on_incomplete_read(monkeypatch):
+    monkeypatch.setattr(catalog.time, "sleep", lambda s: None)
+    monkeypatch.setattr(
+        catalog.urllib.request, "urlopen",
+        _sequenced_urlopen(_incomplete(), _FakeResp({"ok": 1})),
+    )
+    assert catalog.fetch_json("http://dotgg.test") == {"ok": 1}
+
+
+def test_backfill_fetch_retries_on_incomplete_read(monkeypatch):
+    monkeypatch.setattr(dotgg.time, "sleep", lambda s: None)
+    monkeypatch.setattr(
+        dotgg.urllib.request, "urlopen",
+        _sequenced_urlopen(_incomplete(), _FakeResp({"ok": 1})),
+    )
+    assert dotgg._fetch_json("http://dotgg.test") == {"ok": 1}
