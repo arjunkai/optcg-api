@@ -43,6 +43,7 @@ from map_prices_to_cards import load_cards  # noqa: E402
 REPORT_FILE = DATA_DIR / "price_mapping_report.json"
 REVIEW_FILE = DATA_DIR / "stamped_review.html"
 JA_SITE = "//www.onepiece-cardgame.com"
+API_BASE = "https://optcg-api.arjunbansal-ai.workers.dev"
 
 
 def listed_rows(by_id: dict, number: str) -> list[dict]:
@@ -107,7 +108,9 @@ def review_html(items: list[dict], by_id: dict) -> str:
                 f'</figcaption></figure>')
     blocks = []
     for it in items:
-        listed = "".join(img(by_id[c]["image_url"], c) for c in it["listed"][:6])
+        # Our own image route: Bandai blocks hot-linked scans, so the official
+        # image_url renders broken outside onepiece-cardgame.com.
+        listed = "".join(img(f"{API_BASE}/images/{c}", c) for c in it["listed"][:6])
         score = "" if it["closest_score"] is None else f" · closest {it['closest']} {it['closest_score']}"
         blocks.append(
             f'<section class="{it["status"]}"><h2>{html.escape(it["number"])}_t{it["tcg_id"]} '
