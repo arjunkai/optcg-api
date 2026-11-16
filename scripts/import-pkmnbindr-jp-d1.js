@@ -156,9 +156,21 @@ for (const tcgdexId of tcgdexSets) {
       continue;
     }
     console.log(`[${tcgdexId}] executing ${file} (${slice.length} stmts)...`);
-    execFileSync(npx, ['wrangler', 'd1', 'execute', DB_NAME, `--file=${file}`, '--remote'], {
-      stdio: 'inherit', shell: true,
-    });
+    // Retry: a single Cloudflare "InternalError" on the file upload failed the
+    // whole 2026-11-10 refresh. A failed execute rolls back, and these are
+    // COALESCE gap-fills, so re-running the batch is safe.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        execFileSync(npx, ['wrangler', 'd1', 'execute', DB_NAME, `--file=${file}`, '--remote'], {
+          stdio: 'inherit', shell: true,
+        });
+        break;
+      } catch (err) {
+        if (attempt === 3) throw err;
+        console.log(`[${tcgdexId}] ${file} failed (attempt ${attempt}/3), retrying in ${5 * attempt}s...`);
+        await new Promise((r) => setTimeout(r, 5000 * attempt));
+      }
+    }
   }
 }
 

@@ -33,8 +33,11 @@ const lines = [];
 // Skip unchanged DONs: a no-op upsert still counts as D1 rows written (plus
 // the price/price_updated_at indexes). price_updated_at = "price last changed".
 for (const c of cards) {
+  // DON prices are TCGPlayer DON rows (build_don_cards.py). Stamping the source
+  // here: DON-196+ were inserted with price_source NULL before this.
+  const source = c.price == null ? null : 'tcgplayer';
   lines.push(
-    `INSERT INTO cards (id, parallel, name, rarity, category, image_url, price, tcg_ids, price_updated_at) VALUES (${escSql(c.id)}, 0, ${escSql(c.name)}, ${escSql(c.rarity)}, ${escSql(c.category)}, ${escSql(c.image_url)}, ${escSql(c.price)}, ${escSql(JSON.stringify(c.tcg_ids))}, ${escSql(c.price_updated_at)}) ON CONFLICT(id) DO UPDATE SET name=excluded.name, image_url=excluded.image_url, price=excluded.price, tcg_ids=excluded.tcg_ids, price_updated_at=excluded.price_updated_at WHERE name IS NOT excluded.name OR image_url IS NOT excluded.image_url OR price IS NOT excluded.price OR tcg_ids IS NOT excluded.tcg_ids;`
+    `INSERT INTO cards (id, parallel, name, rarity, category, image_url, price, tcg_ids, price_updated_at, price_source) VALUES (${escSql(c.id)}, 0, ${escSql(c.name)}, ${escSql(c.rarity)}, ${escSql(c.category)}, ${escSql(c.image_url)}, ${escSql(c.price)}, ${escSql(JSON.stringify(c.tcg_ids))}, ${escSql(c.price_updated_at)}, ${escSql(source)}) ON CONFLICT(id) DO UPDATE SET name=excluded.name, image_url=excluded.image_url, price=excluded.price, tcg_ids=excluded.tcg_ids, price_updated_at=excluded.price_updated_at, price_source=excluded.price_source WHERE (price_source IS NULL OR price_source != 'manual') AND (name IS NOT excluded.name OR image_url IS NOT excluded.image_url OR price IS NOT excluded.price OR tcg_ids IS NOT excluded.tcg_ids OR price_source IS NOT excluded.price_source);`
   );
 }
 

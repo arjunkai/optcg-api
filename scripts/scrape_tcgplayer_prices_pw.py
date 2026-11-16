@@ -29,6 +29,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from scrape_tcgplayer_prices import SLUG_OVERRIDES, BASE_URL, DATA_DIR, RAW_DIR  # noqa: E402
 
 CHECKPOINT = RAW_DIR / "_checkpoint_pw.json"
+# This run's per-set outcome, read by scripts/check_tcgplayer_coverage.py.
+REPORT = RAW_DIR / "_scrape_report.json"
 NAV_TIMEOUT_MS = 60_000
 SELECTOR_TIMEOUT_MS = 20_000
 SET_DELAY_S = 2.0
@@ -171,6 +173,7 @@ async def run(set_ids_filter: list[str] | None, force: bool) -> None:
         sets = [s for s in sets if s["set_id"] in set_ids_filter]
 
     live = fetch_live_slugs()
+    report: dict[str, dict] = {}
     print(f"TCGPlayer SetNames: {len(live)} slugs" + ("" if live else " (unavailable, using SLUG_OVERRIDES)"))
 
     async with async_playwright() as pw:
@@ -189,6 +192,7 @@ async def run(set_ids_filter: list[str] | None, force: bool) -> None:
             slug = resolve_slug(set_id, live)
             if not slug:
                 print(f"  [skip] {set_id:12} no slug mapped")
+                report[set_id] = {"slug": None, "status": "skipped", "msg": "no slug mapped"}
                 if set_id not in cp["skipped"]:
                     cp["skipped"].append(set_id)
                 continue
@@ -196,11 +200,13 @@ async def run(set_ids_filter: list[str] | None, force: bool) -> None:
             out_path = RAW_DIR / f"{set_id}.md"
             if not force and set_id in cp["completed"] and is_valid_scrape(out_path):
                 print(f"  [done] {set_id:12} {slug}")
+                report[set_id] = {"slug": slug, "status": "ok", "msg": "cached"}
                 continue
 
             print(f"  -> {set_id:12} {slug}")
             ok, msg = await scrape_one(page, set_id, slug)
             print(f"         {msg}")
+            report[set_id] = {"slug": slug, "status": "ok" if ok else "failed", "msg": msg}
 
             if ok:
                 if set_id not in cp["completed"]:
@@ -215,6 +221,13 @@ async def run(set_ids_filter: list[str] | None, force: bool) -> None:
             await asyncio.sleep(SET_DELAY_S)
 
         await browser.close()
+
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    REPORT.write_text(json.dumps({"live_slugs": len(live), "sets": report}, indent=2), encoding="utf-8")
+    for sid, r in report.items():
+        if r["status"] != "ok":
+            # GitHub annotation: shows on the run page, not buried in the log.
+            print(f"::warning title=TCGPlayer scrape {r['status']}::{sid}: {r['msg'][:200]}")
 
     print()
     print(f"Completed: {len(cp['completed'])}  Failed: {len(cp['failed'])}  Skipped: {len(cp['skipped'])}")

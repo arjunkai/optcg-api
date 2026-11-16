@@ -203,6 +203,17 @@ jobs:
             -d '{"prefixes":["optcg-api.arjunbansal-ai.workers.dev/cards/","optcg-api.arjunbansal-ai.workers.dev/sets/"]}'
           echo
 
+      # Fails the run (and so sends GitHub's failure email) when a released set
+      # has TCGPlayer prices we didn't pick up: skipped/failed scrape, or most
+      # of its cards on a fallback source. Last, so snapshots and the cache
+      # purge above still run. See scripts/check_tcgplayer_coverage.py.
+      - name: Check TCGPlayer coverage per set
+        if: ${{ !cancelled() }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m scripts.check_tcgplayer_coverage
+
       - name: Notify Discord
         if: always()
         continue-on-error: true

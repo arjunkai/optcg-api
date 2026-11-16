@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import subprocess
 import sys
@@ -58,7 +59,9 @@ def _fetch_json(url: str, *, max_retries: int = 4, timeout: int = 30):
             if e.code not in TRANSIENT_STATUS:
                 raise  # client/endpoint error — fail fast, don't retry
             last_err = e
-        except (urllib.error.URLError, TimeoutError) as e:
+        except (urllib.error.URLError, TimeoutError, ConnectionError,
+                http.client.HTTPException) as e:
+            # HTTPException covers IncompleteRead (stream dropped mid-body).
             last_err = e
         if attempt < max_retries - 1:
             wait = 2 ** attempt

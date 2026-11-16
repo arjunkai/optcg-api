@@ -32,7 +32,8 @@ Live: `https://optcg-api.arjunbansal-ai.workers.dev`  ·  Docs: `/docs`  ·  Ope
 - `scraper.py` — official site card data scrape → `data/cards.json`
 - `classify_variants.py` — manga/serial classification via Limitless TCG
 - `scripts/scrape_tcgplayer_prices_pw.py` — Playwright price scrape (primary, no credits)
-- `scripts/scrape_tcgplayer_prices.py` — Firecrawl fallback
+- `scripts/scrape_tcgplayer_prices.py` — Firecrawl fallback. Its `SLUG_OVERRIDES` is only a fallback: the Playwright scraper reads each set's price-guide slug from TCGPlayer's `Catalog/SetNames` (new and renamed sets need no code change)
+- `scripts/check_tcgplayer_coverage.py` — last step of the weekly scrape; fails the run if a released set was skipped/failed on TCGPlayer or has <50% `tcgplayer`-priced cards (added after OP-16+/ST-30+ silently fell back to dotgg/eBay for months)
 - `scripts/build_all_prices.py` — parse + map prices → `data/card_prices_all.json`
 - `scripts/build_don_cards.py` — deduped DON catalog → `data/don_cards.json`
 - `scripts/import-d1.js` / `import-prices-d1.js` / `import-don-d1.js` — batched D1 writes
