@@ -8,7 +8,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from image_match import decide, similarity, tcgplayer_image  # noqa: E402
-from build_all_prices import verify_by_image  # noqa: E402
+import build_all_prices  # noqa: E402
+from build_all_prices import labels_agree, load_overrides, verify_by_image  # noqa: E402
 from fetch_tcgcsv_optcg import pick_price, rows_for_group  # noqa: E402
 
 
@@ -95,13 +96,76 @@ def test_does_not_take_a_product_another_print_owns():
     assert verify_by_image(assign, cards, rows, vecs) == {}
 
 
+def mix(a, b, w):
+    """A picture whose similarity to `a` is about w."""
+    v = w * a + (1 - w * w) ** 0.5 * b
+    return (v - v.mean()) / v.std()
+
+
 def test_unresolved_mismatch_is_reported():
+    # Another product looks more like the card (~0.6) than the linked one,
+    # but not clearly enough to move it.
+    card = pic(10)
     cards = {"P-001_p1": {"id": "P-001_p1", "base_id": "P-001", "parallel": 1, "image_url": "off/x"}}
     rows = {"P-001": [{"tcg_id": 5, "price": 3.0}, {"tcg_id": 6, "price": 4.0}]}
-    vecs = FakeVectors({"off/x": pic(10), tcgplayer_image(5): pic(11), tcgplayer_image(6): pic(12)})
+    vecs = FakeVectors({"off/x": card, tcgplayer_image(5): pic(11), tcgplayer_image(6): mix(card, pic(12), 0.6)})
     unresolved = []
     assert verify_by_image({"P-001_p1": 5}, cards, rows, vecs, unresolved) == {}
     assert [u["card_id"] for u in unresolved] == ["P-001_p1"]
+
+
+def test_poor_photo_of_the_linked_product_is_not_reported():
+    # The linked product is already the best match; its photo is just poor.
+    card = pic(13)
+    cards = {"ST10-006_p2": {"id": "ST10-006_p2", "base_id": "ST10-006", "parallel": 1, "image_url": "off/x"}}
+    rows = {"ST10-006": [{"tcg_id": 5, "price": 399.91}, {"tcg_id": 6, "price": 1.0}]}
+    vecs = FakeVectors({"off/x": card, tcgplayer_image(5): mix(card, pic(14), 0.75), tcgplayer_image(6): pic(15)})
+    unresolved = []
+    assert verify_by_image({"ST10-006_p2": 5}, cards, rows, vecs, unresolved) == {}
+    assert unresolved == []
+
+
+def test_labels_agree():
+    assert labels_agree("Japanese 2nd Anniversary Set", "One Piece Japanese Version 2nd Anniversary Set")
+    assert labels_agree("Premium Card Collection -Best Selection-", "Premium Card Collection -Best Selection Vol. 1-")
+    assert labels_agree("OP-12 Release Event", "OP12 Release Event")
+    # an extra stamp word is a different print
+    assert not labels_agree("OP-12 Release Event", "OP12 Release Event Winner")
+    assert not labels_agree("CS 2024 Event Pack", "CS 2024 Event Pack Finalist")
+    # set texts name a pack, not a print
+    assert not labels_agree("-ROMANCE DAWN- [OP01]", "Romance Dawn OP01")
+    assert not labels_agree(None, "Alternate Art")
+
+
+def test_official_label_backs_a_weaker_picture_match():
+    # OP05-030_p2: official "Japanese 2nd Anniversary Set", linked to the
+    # sibling's Alternate Art product. The anniversary photo scores ~0.65,
+    # under MATCH, but the label names it.
+    card = pic(30)
+    cards = {"OP05-030_p2": {"id": "OP05-030_p2", "base_id": "OP05-030", "parallel": 1, "image_url": "off/x"}}
+    rows = {"OP05-030": [
+        {"tcg_id": 1, "price": 4.63, "name_suffix": "Alternate Art"},
+        {"tcg_id": 2, "price": 41.15, "name_suffix": "One Piece Japanese Version 2nd Anniversary Set"},
+    ]}
+    vecs = FakeVectors({"off/x": card, tcgplayer_image(1): mix(card, pic(31), 0.45),
+                        tcgplayer_image(2): mix(card, pic(32), 0.65)})
+    official = {"OP05-030_p2": "Japanese 2nd Anniversary Set"}
+    assert verify_by_image({"OP05-030_p2": 1}, cards, rows, vecs, None, official) == {"OP05-030_p2": 2}
+    # without the label it stays put
+    assert verify_by_image({"OP05-030_p2": 1}, cards, rows, vecs) == {}
+    # a label naming a stamp the product lacks doesn't back it
+    assert verify_by_image({"OP05-030_p2": 1}, cards, rows, vecs, None,
+                           {"OP05-030_p2": "Japanese 2nd Anniversary Set Winner"}) == {}
+
+
+def test_load_overrides(tmp_path, monkeypatch):
+    f = tmp_path / "overrides.json"
+    f.write_text('{"_readme": "x", "A_p1": {"tcg_id": 7, "note": "n"}, "B": 8, "gone": 7, "A_p2": 99}',
+                 encoding="utf-8")
+    monkeypatch.setattr(build_all_prices, "OVERRIDES_FILE", f)
+    cards = {"A_p1": {}, "B": {}, "A_p2": {}}
+    products = {7: {"price": 1.0}, 8: {"price": 2.0}}
+    assert load_overrides(cards, products) == {"A_p1": 7, "B": 8}
 
 
 # ── tcgcsv rows ─────────────────────────────────────────────────────────────

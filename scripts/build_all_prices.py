@@ -45,6 +45,9 @@ DATA_DIR = Path("data")
 RAW_DIR = DATA_DIR / "tcgplayer_raw"
 DOTGG_FILE = DATA_DIR / "dotgg_catalog.json"
 TCGCSV_FILE = DATA_DIR / "tcgcsv_optcg.json"  # scripts/fetch_tcgcsv_optcg.py
+# Hand-checked card -> TCGPlayer product links, applied after every automatic
+# step: {"OP09-004_p5": {"tcg_id": 657442, "note": "Gold SP, checked by eye"}}.
+OVERRIDES_FILE = DATA_DIR / "price_mapping_overrides.json"
 
 # Sanity ceiling for dotgg-only fallback prices (no TCGPlayer sale exists for
 # the card). Above this, dotgg's number is almost always the TCGPlayer listed
@@ -147,6 +150,34 @@ def _norm_label(s: str | None) -> str:
     return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 
+# Words an official card-set text may leave out of TCGPlayer's label for the
+# same product: "Japanese 2nd Anniversary Set" is TCGPlayer's "One Piece
+# Japanese Version 2nd Anniversary Set", "Premium Card Collection -Best
+# Selection-" its "... -Best Selection Vol. 1-". A stamp word (winner,
+# finalist, judge, ...) never counts as filler.
+LABEL_FILLER = {"one", "piece", "version", "edition", "vol", "the", "english", "japanese"}
+
+
+def _label_tokens(s: str | None) -> set[str]:
+    s = re.sub(r"([a-z])-(\d)", r"\1\2", (s or "").lower())  # "OP-12" == "OP12"
+    return set(re.findall(r"[a-z0-9]+", s))
+
+
+def labels_agree(official: str | None, product: str | None) -> bool:
+    """The official card-set text names this TCGPlayer product label.
+
+    Every official word must be in the product label, and the product label
+    may add only filler words and numbers. Set texts ("-ROMANCE DAWN-
+    [OP-01]") never agree: they name a pack, not a print.
+    """
+    if not official or not product or SET_TEXT_RE.search(official):
+        return False
+    o, p = _label_tokens(official), _label_tokens(product)
+    if len(o) < 2 or not o <= p:
+        return False
+    return all(t in LABEL_FILLER or t.isdigit() for t in p - o)
+
+
 def match_promo_labels(cards: dict, dotgg: dict, rows_by_number: dict) -> dict:
     """card_id -> tcg_id where the official card-set label names the product.
 
@@ -176,16 +207,45 @@ def match_promo_labels(cards: dict, dotgg: dict, rows_by_number: dict) -> dict:
     return out
 
 
-def verify_by_image(assign: dict, cards: dict, rows_by_number: dict, vectors, unresolved: list | None = None) -> dict:
+# A product whose label the official card-set text names may win on a weaker
+# picture match (TCGPlayer photos of stamped anniversary / premium prints
+# often score 0.55-0.85 against the clean official scan), as long as it leads
+# every other product by LABEL_LEAD.
+LABEL_MATCH = 0.55
+LABEL_LEAD = 0.10
+
+
+def label_backed(scores: dict, current: int | None, official: str | None, labels: dict) -> int | None:
+    """The product the picture and the official label agree on, or None."""
+    known = {t: s for t, s in scores.items() if s is not None}
+    if not known or not official:
+        return None
+    best = max(known, key=known.get)
+    if best == current or known[best] < LABEL_MATCH:
+        return None
+    if not labels_agree(official, labels.get(best)):
+        return None
+    if current is not None and labels_agree(official, labels.get(current)):
+        return None  # the current product is the one the label names
+    if any(t != best and known[best] - s < LABEL_LEAD for t, s in known.items()):
+        return None
+    return best
+
+
+def verify_by_image(assign: dict, cards: dict, rows_by_number: dict, vectors, unresolved: list | None = None,
+                    official: dict | None = None) -> dict:
     """card_id -> tcg_id where the official image picks a different product.
 
     Checks parallels, P- promos and cards with no mapping yet against every
     TCGPlayer product printed with the same number (image_match.py). A card
-    moves only when one product clearly matches its picture (decide()), that
-    product isn't held by another card of the family that matches it as
-    well, and no other card of the family wants it about as much.
+    moves only when one product clearly matches its picture (decide()), or
+    matches it well and is the product the official card-set text names
+    (label_backed(); `official` is card_id -> dotgg CardSets). The product
+    must not be held by another card of the family that matches it as well,
+    and no other card of the family may want it about as much.
     """
     from image_match import MATCH, TIE, decide, similarity, tcgplayer_image
+    official = official or {}
 
     def wants_check(cid: str) -> bool:
         c = cards[cid]
@@ -215,14 +275,20 @@ def verify_by_image(assign: dict, cards: dict, rows_by_number: dict, vectors, un
     for cid in todo:
         base = cards[cid].get("base_id") or cid
         cands = {r["tcg_id"] for r in rows_by_number[base] if r.get("price") is not None}
+        labels = {r["tcg_id"]: r.get("name_suffix") for r in rows_by_number[base]}
         scores = {t: score(cid, t) for t in cands}
         best = decide(scores, assign.get(cid))
         if best is None:
+            best = label_backed(scores, assign.get(cid), official.get(cid), labels)
+        if best is None:
             cur = scores.get(assign.get(cid))
             known = [s for s in scores.values() if s is not None]
-            if unresolved is not None and cur is not None and cur < 0.8 and known:
-                # Linked product's photo doesn't look like the card, and no
-                # other product clearly does either: a human should look.
+            if (unresolved is not None and cur is not None and cur < 0.8 and known
+                    and max(known) - cur >= TIE):
+                # Linked product's photo doesn't look like the card, another
+                # product looks more like it, but not clearly: a human should
+                # look. (When the linked product is already the best match,
+                # its photo is just poor: stamped prints often score 0.6-0.8.)
                 unresolved.append({"card_id": cid, "tcg_id": assign.get(cid), "score": round(cur, 3),
                                    "best_other": round(max(known), 3)})
             continue
@@ -247,6 +313,25 @@ STAMP_RE = re.compile(r"championship|\bcs\b|celebration|winner|finalist|top \d|r
                       r"store|judge|tournament|participation|event pack|anniversary|pre-?release", re.I)
 
 
+def load_overrides(cards: dict, products: dict) -> dict:
+    """card_id -> tcg_id from OVERRIDES_FILE, skipping (and warning about)
+    entries whose card or priced product no longer exists."""
+    if not OVERRIDES_FILE.exists():
+        return {}
+    out: dict[str, int] = {}
+    for cid, entry in json.loads(OVERRIDES_FILE.read_text(encoding="utf-8")).items():
+        if cid.startswith("_"):
+            continue  # comment keys
+        tid = int(entry["tcg_id"] if isinstance(entry, dict) else entry)
+        if cid not in cards:
+            print(f"WARNING: override {cid}: no such card, skipped")
+        elif tid not in products or products[tid].get("price") is None:
+            print(f"WARNING: override {cid}: product {tid} missing or unpriced, skipped")
+        else:
+            out[cid] = tid
+    return out
+
+
 def write_mapping_summary(report: dict, matched: dict, products: dict, rows_by_number: dict) -> None:
     """Markdown for the run summary + data/price_mapping_report.json."""
     used = {t for v in matched.values() for t in v["tcg_ids"]}
@@ -264,7 +349,7 @@ def write_mapping_summary(report: dict, matched: dict, products: dict, rows_by_n
         return f"{p.get('name_suffix') or 'base'} ${p.get('price')}" if t else "-"
     lines = ["### Promo & variant pricing", ""]
     for key, title in (("label", "Matched by official promo label"), ("shared", "Moved off a sibling's product"),
-                       ("image", "Re-matched by picture")):
+                       ("image", "Re-matched by picture"), ("override", "Hand-checked overrides")):
         changes = report.get(key) or {}
         lines.append(f"**{title}: {len(changes)}**")
         lines += [f"- {c}: {fmt(o)} → {fmt(n)}" for c, (o, n) in sorted(changes.items())[:40]]
@@ -445,7 +530,8 @@ def main() -> None:
         vectors = Vectors()
         current = {**assign, **fixes}
         unresolved: list[dict] = []
-        by_image = verify_by_image(current, by_id, rows_by_number, vectors, unresolved)
+        official = {cid: (dotgg.get(cid) or {}).get("CardSets") for cid in by_id}
+        by_image = verify_by_image(current, by_id, rows_by_number, vectors, unresolved, official)
         vectors.save()
         print(f"Image check: {len(by_image)} card(s) re-matched by picture "
               f"({vectors.fetched} new thumbnails downloaded)")
@@ -456,6 +542,17 @@ def main() -> None:
         fixes.update(by_image)
         mapping_report["image"] = {c: [current.get(c), t] for c, t in by_image.items()}
         mapping_report["unresolved"] = unresolved
+
+    # Hand-checked links win over everything automatic.
+    overrides = load_overrides(by_id, tcg_products)
+    before = {**assign, **fixes}
+    for cid, tid in sorted(overrides.items()):
+        if before.get(cid) != tid:
+            print(f"  override {cid}: {before.get(cid)} -> {tid} {tcg_products[tid]['name_suffix']!r} "
+                  f"(${tcg_products[tid]['price']})")
+    mapping_report["override"] = {c: [before.get(c), t] for c, t in overrides.items() if before.get(c) != t}
+    fixes.update(overrides)
+    mapping_report["unresolved"] = [u for u in mapping_report["unresolved"] if u["card_id"] not in overrides]
 
     for card_id in by_id.keys():
         if card_id in fixes:
