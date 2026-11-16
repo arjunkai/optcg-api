@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from parse_tcgplayer_prices import parse_file as parse_md
@@ -64,6 +64,79 @@ def to_tcg_ids(v) -> list[int]:
     return [int(x) for x in str(v).split(",") if str(x).strip().isdigit()]
 
 
+STRICT_ALT_LABELS = {"Alternate Art", "Parallel"}
+
+
+def label_type(product: dict) -> str:
+    """What a TCGPlayer product's labels say it is.
+
+    'base' (no label), 'manga' (any "(Manga)", e.g. "Shanks (Parallel) (Manga)
+    (Alternate Art)"), 'reprint', 'alt_art' (Alternate Art / Parallel only), or
+    'other' for promo labels (Judge, Treasure Cup, ...) that can't be told
+    apart from the label alone.
+    """
+    suffix = product.get("name_suffix")
+    if suffix in ("Manga", "Manga Rare") or "(Manga)" in (product.get("name") or ""):
+        return "manga"
+    if suffix is None:
+        return "base"
+    if suffix == "Reprint":
+        return "reprint"
+    if suffix in STRICT_ALT_LABELS:
+        return "alt_art"
+    return "other"
+
+
+def card_type(card: dict) -> str:
+    return (card.get("variant_type") or "alt_art") if card.get("parallel") else "base"
+
+
+def correct_shared_tcg_ids(assign: dict, cards: dict, products: dict, rows_by_number: dict) -> dict:
+    """Fix dotgg mappings that hand a family member's product to another card.
+
+    dotgg sometimes maps a parallel to its base's or sibling's product: OP-17
+    had OP17-005_p1/_p2 on the base Newgate (711499, $0.70) and the Linlin
+    manga OP17-112_p2 on the alt art (711324), while TCGPlayer lists the
+    mangas at ~$1,058 and ~$709.
+
+    A card is corrected only when all of these hold, so a right mapping is
+    never moved (OP01-120_p2 shares the OP-01 manga product with the PRB-01
+    manga reprint, and both are right):
+      * its product is shared with another card of the same base,
+      * that other card's type matches the product's label (it owns it),
+      * this card's type doesn't,
+      * exactly one unclaimed product for the number carries this card's
+        exact label (Manga / Reprint / Alternate Art / Parallel).
+
+    assign: card_id -> tcg_id. Returns {card_id: corrected tcg_id}.
+    """
+    family: dict[str, list[str]] = defaultdict(list)
+    for cid in assign:
+        family[cards[cid].get("base_id") or cid].append(cid)
+    fixes: dict[str, int] = {}
+    for base, ids in family.items():
+        used = {assign[i] for i in ids}
+        for cid in sorted(ids):
+            tid = assign[cid]
+            label = label_type(products[tid])
+            want = card_type(cards[cid])
+            if want == label or want not in ("manga", "reprint", "alt_art"):
+                continue
+            if label == "other" and want == "alt_art":
+                continue  # a promo-labeled alt art is plausibly right
+            owners = [i for i in ids if i != cid and assign[i] == tid and card_type(cards[i]) == label]
+            if not owners:
+                continue
+            cands = list(dict.fromkeys(
+                r["tcg_id"] for r in rows_by_number.get(base, [])
+                if label_type(r) == want and r["tcg_id"] not in used and r["price"] is not None
+            ))
+            if len(cands) == 1:
+                fixes[cid] = cands[0]
+                used.add(cands[0])
+    return fixes
+
+
 def main() -> None:
     if not DOTGG_FILE.exists():
         print(f"ERROR: {DOTGG_FILE} not found. Run `python scripts/fetch_dotgg_catalog.py` first.")
@@ -82,6 +155,7 @@ def main() -> None:
     sets_meta.sort(key=lambda s: (s["set_id"].startswith(PREMIUM_SET_PREFIXES), s["pack_id"]))
 
     total_rows = 0
+    rows_by_number: dict[str, list[dict]] = defaultdict(list)
     for s in sets_meta:
         md_path = RAW_DIR / f"{s['set_id']}.md"
         if not md_path.exists():
@@ -91,6 +165,7 @@ def main() -> None:
             tcg_id = row["tcg_id"]
             if tcg_id in tcg_products:
                 continue  # first-seen wins (original set)
+            rows_by_number[row["number"]].append(row)
             tcg_products[tcg_id] = {
                 "price": row["price"],
                 "set_id": s["set_id"],
@@ -117,6 +192,20 @@ def main() -> None:
     dotgg_rejected_high = []
     no_dotgg_entry = []
 
+    # dotgg's tcg_id for each card with a priced TCGPlayer product, then fix
+    # the ones where dotgg handed a base's product to two cards.
+    assign: dict[str, int] = {}
+    for card_id in by_id.keys():
+        ids = to_tcg_ids((dotgg.get(card_id) or {}).get("tcg_ids"))
+        tid = next((t for t in ids if t in tcg_products), None)
+        if tid is not None and tcg_products[tid]["price"] is not None:
+            assign[card_id] = tid
+    fixes = correct_shared_tcg_ids(assign, by_id, tcg_products, rows_by_number)
+    print(f"Relabeled {len(fixes)} dotgg mapping(s) that shared a tcg_id within a base:")
+    for cid, new in sorted(fixes.items()):
+        print(f"  {cid}: {assign[cid]} (${tcg_products[assign[cid]]['price']}) "
+              f"-> {new} (${tcg_products[new]['price']})")
+
     for card_id in by_id.keys():
         dotgg_row = dotgg.get(card_id)
         if not dotgg_row:
@@ -124,6 +213,11 @@ def main() -> None:
             continue
 
         tcg_ids = to_tcg_ids(dotgg_row.get("tcg_ids"))
+        if card_id in fixes:
+            tid = fixes[card_id]
+            upsert(card_id, tcg_products[tid]["price"], [tid], tcg_products[tid]["set_id"], "dotgg+tcgplayer")
+            authoritative += 1
+            continue
         # Try TCGPlayer first — fresher, it's our primary market.
         tcg_match = next((tcg_products[tid] for tid in tcg_ids if tid in tcg_products), None)
         if tcg_match and tcg_match["price"] is not None:
