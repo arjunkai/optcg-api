@@ -474,25 +474,10 @@ jobs:
           OPTCG_ALLOW_REMOTE: '1'
         run: node scripts/build-snapshots.mjs --only pokemon
 
-      # Purge Cloudflare edge cache for /cards/index and /pokemon/cards/*
-      # responses so the fresh D1 data is visible to users immediately
-      # instead of waiting 1h fresh + 24h stale-while-revalidate to roll
-      # over. continue-on-error so a cache API blip doesn't fail the run.
-      - name: Purge Cloudflare edge cache
-        continue-on-error: true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
-        run: |
-          if [ -z "$CLOUDFLARE_ZONE_ID" ]; then
-            echo "CLOUDFLARE_ZONE_ID not set — skipping cache purge (Workers.dev URLs aren't zone-cached anyway)"
-            exit 0
-          fi
-          curl -sX POST "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE_ID/purge_cache" \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{"prefixes":["optcg-api.arjunbansal-ai.workers.dev/cards/","optcg-api.arjunbansal-ai.workers.dev/pokemon/"]}'
-          echo
+      # No cache purge: the API is served from workers.dev, so its edge cache is
+      # the per-colo Workers Cache API, which a zone purge can't reach. Fresh D1
+      # data shows everywhere within EDGE_TTL_S (1h, src/edgeCache.js); an admin
+      # key's ?refresh=1 refreshes one colo immediately.
 
       # Discord ping with the coverage numbers + a link to the run. Posts
       # regardless of success/failure (if: always()) so a silently-killed

@@ -188,25 +188,15 @@ jobs:
           OPTCG_ALLOW_REMOTE: '1'
         run: node scripts/build-snapshots.mjs --only optcg,canvs
 
-      - name: Purge Cloudflare edge cache
-        continue-on-error: true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
-        run: |
-          if [ -z "$CLOUDFLARE_ZONE_ID" ]; then
-            echo "CLOUDFLARE_ZONE_ID not set — skipping cache purge"; exit 0
-          fi
-          curl -sX POST "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE_ID/purge_cache" \
-            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{"prefixes":["optcg-api.arjunbansal-ai.workers.dev/cards/","optcg-api.arjunbansal-ai.workers.dev/sets/"]}'
-          echo
+      # No cache purge: the API is served from workers.dev, so its edge cache is
+      # the per-colo Workers Cache API, which a zone purge can't reach. Fresh D1
+      # data shows everywhere within EDGE_TTL_S (1h, src/edgeCache.js); an admin
+      # key's ?refresh=1 refreshes one colo immediately.
 
       # Fails the run (and so sends GitHub's failure email) when a released set
       # has TCGPlayer prices we didn't pick up: skipped/failed scrape, or most
-      # of its cards on a fallback source. Last, so snapshots and the cache
-      # purge above still run. See scripts/check_tcgplayer_coverage.py.
+      # of its cards on a fallback source. Last, so the snapshot
+      # build above still runs. See scripts/check_tcgplayer_coverage.py.
       - name: Check TCGPlayer coverage per set
         if: ${{ !cancelled() }}
         env:
