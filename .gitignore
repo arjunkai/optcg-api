@@ -8,6 +8,7 @@ data/*
 !data/jp_exclusives.json
 !data/don_id_lock.json
 !data/price_mapping_overrides.json
+!data/stamped_prints.json
 !data/pokemontcg-data
 !data/pokemon-tcg-pocket-database
 !data/ptcg_set_mapping.json

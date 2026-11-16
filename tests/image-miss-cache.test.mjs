@@ -90,3 +90,25 @@ test('a DON whose TCGPlayer fetch times out is retried on the next request', asy
   upstream = () => jpg();
   assert.equal((await get('/images/DON-005')).status, 200);
 });
+
+test('a stamped _t print serves its own TCGPlayer product photo without a D1 lookup', async () => {
+  upstream = () => jpg();
+  let dbCalls = 0;
+  const countingDb = { prepare: () => { dbCalls += 1; return DB.prepare(); } };
+  const waits = [];
+  const res = await app.request('/images/OP07-109_t579983?lang=ja', {}, { IMAGES, DB: countingDb },
+    { waitUntil: (p) => waits.push(p), passThroughOnException() {} });
+  await Promise.all(waits);
+  assert.equal(res.status, 200);
+  assert.equal(dbCalls, 0, 'the product id comes from the card id');
+  assert.ok(calls.some((u) => u.includes('/product/579983_in_1000x1000.jpg')), 'fetched its own product');
+  assert.ok(!calls.some((u) => u.includes('onepiece-cardgame.com')), 'never asks Bandai, even with ?lang=ja');
+  assert.ok(r2.has('cards/fallback/OP07-109_t579983'));
+});
+
+test('a curated R2 image wins over the TCGPlayer photo for a _t print', async () => {
+  r2.set('cards/OP07-109_t579983.png', { bytes: new Uint8Array([7]), meta: {} });
+  upstream = () => jpg();
+  assert.equal((await get('/images/OP07-109_t579983')).status, 200);
+  assert.equal(calls.length, 0);
+});

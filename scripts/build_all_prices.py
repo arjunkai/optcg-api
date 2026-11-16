@@ -48,6 +48,10 @@ TCGCSV_FILE = DATA_DIR / "tcgcsv_optcg.json"  # scripts/fetch_tcgcsv_optcg.py
 # Hand-checked card -> TCGPlayer product links, applied after every automatic
 # step: {"OP09-004_p5": {"tcg_id": 657442, "note": "Gold SP, checked by eye"}}.
 OVERRIDES_FILE = DATA_DIR / "price_mapping_overrides.json"
+# Reviewed stamped prints we add as {base}_t{tcg_id} rows
+# (scripts/import-stamped-prints.js). Each approved one is priced straight
+# from its own product.
+STAMPED_FILE = DATA_DIR / "stamped_prints.json"
 
 # Sanity ceiling for dotgg-only fallback prices (no TCGPlayer sale exists for
 # the card). Above this, dotgg's number is almost always the TCGPlayer listed
@@ -332,6 +336,23 @@ def load_overrides(cards: dict, products: dict) -> dict:
     return out
 
 
+def load_stamped_prints(products: dict) -> dict:
+    """card_id -> tcg_id for every approved entry in STAMPED_FILE whose
+    product is priced. Unapproved candidates are ignored."""
+    if not STAMPED_FILE.exists():
+        return {}
+    out: dict[str, int] = {}
+    for key, e in json.loads(STAMPED_FILE.read_text(encoding="utf-8")).items():
+        if key.startswith("_") or not isinstance(e, dict) or not e.get("approved"):
+            continue
+        tid = int(key)
+        if tid not in products or products[tid].get("price") is None:
+            print(f"WARNING: stamped print {e.get('base')}_t{tid}: product missing or unpriced, not priced this run")
+            continue
+        out[f"{e['base']}_t{tid}"] = tid
+    return out
+
+
 def write_mapping_summary(report: dict, matched: dict, products: dict, rows_by_number: dict) -> None:
     """Markdown for the run summary + data/price_mapping_report.json."""
     used = {t for v in matched.values() for t in v["tcg_ids"]}
@@ -353,6 +374,11 @@ def write_mapping_summary(report: dict, matched: dict, products: dict, rows_by_n
         changes = report.get(key) or {}
         lines.append(f"**{title}: {len(changes)}**")
         lines += [f"- {c}: {fmt(o)} → {fmt(n)}" for c, (o, n) in sorted(changes.items())[:40]]
+        lines.append("")
+    dup = report.get("stamped_duplicates") or []
+    if dup:
+        lines.append(f"**Listed cards priced from a stamped _t row's product (same print? retire the _t row): {len(dup)}**")
+        lines += [f"- {c} shares {fmt(matched[c]['tcg_ids'][0])} with {t}" for c, t in dup]
         lines.append("")
     un = report.get("unresolved") or []
     lines.append(f"**Picture doesn't match its product, no clear fix (check by hand): {len(un)}**")
@@ -608,6 +634,15 @@ def main() -> None:
     # both _p1 and _p2). See audit_optcg_positional_conflation.py.
     seen_tcg_ids: set[int] = set(fixes.values())  # never reuse a corrected card's product
 
+    # Approved stamped-print rows ({base}_t{tcg_id}) are that exact product,
+    # so they skip dotgg / label / picture matching. Their products are kept
+    # out of the positional fallback below.
+    stamped = load_stamped_prints(tcg_products)
+    for cid, tid in stamped.items():
+        upsert(cid, tcg_products[tid]["price"], [tid], tcg_products[tid]["set_id"], "stamped-print")
+    seen_tcg_ids |= set(stamped.values())
+    print(f"Stamped-print rows priced from their own product:      {len(stamped)}")
+
     # Re-use all scraped rows (not just deduped products)
     for s in sets_meta:
         md_path = RAW_DIR / f"{s['set_id']}.md"
@@ -644,6 +679,14 @@ def main() -> None:
     for entry in matched.values():
         product = tcg_products.get(entry["tcg_ids"][0]) if entry["tcg_ids"] else None
         entry["print_label"], entry["stamp"] = stamp_for(product and product["name_suffix"])
+
+    # A listed card priced from a _t row's product is probably the same print
+    # (the official site added it, or a mapping moved onto it): flag it for
+    # the retire step (plan §3), never resolve it automatically.
+    owner = {tid: cid for cid, tid in stamped.items()}
+    mapping_report["stamped_duplicates"] = sorted(
+        [cid, owner[v["tcg_ids"][0]]] for cid, v in matched.items()
+        if cid not in stamped and v["tcg_ids"] and v["tcg_ids"][0] in owner)
 
     write_mapping_summary(mapping_report, matched, tcg_products, rows_by_number)
 
