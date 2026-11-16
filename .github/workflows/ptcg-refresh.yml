@@ -1,28 +1,21 @@
 name: Weekly PTCG Refresh
 
-# DAG split (2026-05-05): the original single-job pipeline kept hitting
-# GitHub's hard 6h job ceiling mid-eBay-JA-prices step (~3700 cards
-# rate-limited by eBay's per-app cap). Now structured as three jobs:
+# Two jobs:
 #
-#   1) ingest-and-prices      — TCGdex import + image merges + every
-#                               pricing source EXCEPT eBay JA prices.
-#                               Includes eBay EN prices, eBay EN+JA
-#                               images. ~2-3h typical.
-#   2) ebay-ja-prices         — Just `backfill_ptcg_prices_ebay --lang=ja`,
-#                               with its own 5.5h budget and a D1-backed
-#                               cursor (migration 010). Kills cleanly
-#                               30min before the 6h ceiling so the
-#                               cursor write isn't truncated.
-#   3) manual-overrides       — `import-ptcg-manual-prices.js`, runs
-#                               LAST so manual rows always win even
-#                               when eBay JA was timeout-killed.
-#                               `if: !cancelled()` so a killed eBay JA
+#   1) ingest-and-prices      — TCGdex import + image merges + pricing:
+#                               pokemontcg.io (EN USD), TCGCSV (EN + JA,
+#                               TCGPlayer), eBay EN prices, eBay EN+JA
+#                               images.
+#   2) manual-overrides       — `import-ptcg-manual-prices.js`, runs
+#                               LAST so manual rows always win, then the
+#                               price-history snapshot and R2 snapshots.
+#                               `if: !cancelled()` so a failed ingest
 #                               doesn't block manual.
 #
-# Each job carries its own 6h budget. Cursor in eBay JA means even if
-# week N is killed mid-cohort, week N+1 picks up where it stopped and
-# eventually finishes the whole catalog. See migration 010 + the
-# read_cursor/write_cursor helpers in scripts/backfill_ptcg_prices_ebay.py.
+# 2026-11-16: dropped the JA price scrapers (Yuyutei / Hareruya /
+# PriceCharting prices and the separate 5.5h eBay JA prices job). Yuyutei
+# still runs for JA images and catalog rows (--no-prices). JA rows those
+# sources priced keep their last value until a TCGCSV price replaces it.
 
 on:
   schedule:
@@ -250,32 +243,21 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: python -m scripts.backfill_yuyutei_catalog --apply
+        run: python -m scripts.backfill_yuyutei_catalog --apply --no-prices
 
-      # Yuyutei (JP retailer) layered on top of pkmnbindr's catalog.
-      # Runs BEFORE eBay JP because retail prices are more stable than
-      # auction noise. Yuyutei's UPDATE clause includes 'ebay_jp' so it
-      # supersedes a prior eBay JP value if Yuyutei has the card.
-      - name: Backfill JA images + prices via Yuyutei
+      # Yuyutei (JP retailer) layered on top of pkmnbindr's catalog, for
+      # images only. JA retail/auction price scrapers (Yuyutei, Hareruya,
+      # PriceCharting, eBay JP) were dropped 2026-11-16: little use, the
+      # flakiest steps of the run. JA prices now come from TCGCSV only.
+      - name: Backfill JA images via Yuyutei
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: python -m scripts.backfill_yuyutei_jp
-
-      # Hareruya2 (Shopify storefront, no Cloudflare). Walks 18 series-
-      # level collections via /collections/{handle}/products.json,
-      # parses set+lid from product titles, FX-converts JPY→USD. Runs
-      # after Yuyutei because Yuyutei's catalog curation is tighter.
-      - name: Backfill JA prices via Hareruya
-        continue-on-error: true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: python -m scripts.backfill_ptcg_prices_hareruya
+        run: python -m scripts.backfill_yuyutei_jp --no-prices
 
       # TCGCSV (community TCGPlayer mirror snapshot). Fills NULL rows
-      # pokemontcg.io / yuyutei / hareruya missed — same gate as every
+      # pokemontcg.io missed — same gate as every
       # source, so claimed cards stay claimed. The May-13 manual run
       # hit ~17k JA cards; wiring it here keeps that coverage from
       # rotting as new cards enter via TCGdex.
@@ -292,16 +274,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: python -m scripts.backfill_ptcg_prices_tcgcsv --lang=ja
-
-      # PriceCharting closes the vintage JA tail (PCG / Holon / neo /
-      # ADV / e-Card / BS eras) that retail sources don't carry. NULL-
-      # only gate; the May-13 manual run captured ~3.8k vintage cards.
-      - name: Backfill JA vintage prices via PriceCharting
-        continue-on-error: true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: python -m scripts.backfill_ptcg_prices_pricecharting
 
       - name: Backfill EN prices via eBay (US)
         continue-on-error: true
@@ -340,8 +312,6 @@ jobs:
         run: python -m scripts.backfill_ptcg_images_ebay --lang=ja
 
       # Submodule pointers committed here at the end of the ingest job.
-      # Even if eBay JA prices fails downstream, the data updates from
-      # this job still land in git history.
       - name: Commit submodule pointers if changed
         run: |
           if ! git diff --quiet data/pokemontcg-data data/pokemon-tcg-pocket-database 2>/dev/null; then
@@ -356,49 +326,11 @@ jobs:
             echo "No submodule changes — skipping commit."
           fi
 
-  ebay-ja-prices:
-    # Isolated job for the long-pole eBay JA pricing step. Gets its own
-    # 6h budget; uses a D1-backed cursor so a 6h kill preserves progress
-    # for week N+1 to pick up. timeout-minutes is set to 330 (5.5h) so
-    # the cursor write isn't truncated by GH's hard kill at 6h.
-    needs: ingest-and-prices
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 330
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-
-      - name: Install deps
-        run: npm ci
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Python deps
-        run: pip install -r requirements.txt
-
-      - name: Backfill JA prices via eBay (JP) with cursor resume
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          EBAY_APP_ID: ${{ secrets.EBAY_APP_ID }}
-          EBAY_CERT_ID: ${{ secrets.EBAY_CERT_ID }}
-        run: python -m scripts.backfill_ptcg_prices_ebay --lang=ja
-
   manual-overrides:
     # Runs LAST so manual_prices.json wins over every automated source.
-    # `if: !cancelled()` so even a timeout-killed eBay JA doesn't block
-    # the manual sweep — manual is small (~1min) and always-applied.
-    needs: ebay-ja-prices
+    # `if: !cancelled()` so a failed ingest step doesn't block the
+    # manual sweep — manual is small (~1min) and always-applied.
+    needs: ingest-and-prices
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30

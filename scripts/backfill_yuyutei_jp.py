@@ -53,6 +53,9 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="Build SQL, don't run it")
     ap.add_argument("--limit", type=int, default=None,
                     help="Cap the number of TCGdex sets processed (smoke tests)")
+    ap.add_argument("--no-prices", action="store_true",
+                    help="Images (and catalog rows) only; write no Yuyutei prices. "
+                         "The weekly ptcg-refresh runs this way since JA price scrapers were dropped.")
     args = ap.parse_args()
 
     try:
@@ -96,7 +99,7 @@ def main() -> None:
                     images_filled += 1
                     for cid in card_id_candidates:
                         sql_lines.append(image_update_sql(cid, image_url))
-                if card["price_jpy"] is not None:
+                if card["price_jpy"] is not None and not args.no_prices:
                     price_usd = round(card["price_jpy"] * fx, 2)
                     prices_filled += 1
                     payload = json.dumps({
