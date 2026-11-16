@@ -75,6 +75,21 @@ PRICE_RE = re.compile(r"\$([\d,]+\.\d{2})")
 FIRST_TOKEN_RE = re.compile(r"^[^<]*")
 
 
+def split_name(name: str) -> tuple[str, str | None]:
+    """"Sanji (CS 25-26 Celebration Pack)" -> ("Sanji", "CS 25-26 Celebration Pack").
+
+    Only the trailing parenthetical is the label; numeric disambiguators
+    ("(073)") and card numbers ("(ST18-004)") stay part of the name. Shared
+    by the price-guide parser and the tcgcsv fetcher so both label alike.
+    """
+    m = SUFFIX_RE.search(name)
+    if m:
+        candidate = m.group(1).strip()
+        if candidate in VARIANT_SUFFIXES or looks_like_variant_label(candidate):
+            return SUFFIX_RE.sub("", name).strip(), candidate
+    return name, None
+
+
 def clean_cell(text: str) -> str:
     """Strip leading label ('Printing:', 'Condition:') and take first value."""
     # Drop 'Label:' prefix if present
@@ -114,13 +129,7 @@ def parse_row(line: str) -> dict | None:
     # anything else is accepted as a variant label if it passes the heuristic
     # (non-numeric, non-card-id). This catches promo-pack labels like
     # "(Judge Pack Vol. 5)" that we don't want to enumerate exhaustively.
-    suffix_match = SUFFIX_RE.search(name)
-    name_suffix: str | None = None
-    if suffix_match:
-        candidate = suffix_match.group(1).strip()
-        if candidate in VARIANT_SUFFIXES or looks_like_variant_label(candidate):
-            name_suffix = candidate
-            name = SUFFIX_RE.sub("", name).strip()
+    name, name_suffix = split_name(name)
 
     number = number_cell.strip()
     if not NUMBER_RE.match(number):

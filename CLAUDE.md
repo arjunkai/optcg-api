@@ -34,7 +34,9 @@ Live: `https://optcg-api.arjunbansal-ai.workers.dev`  ·  Docs: `/docs`  ·  Ope
 - `scripts/scrape_tcgplayer_prices_pw.py` — Playwright price scrape (primary, no credits)
 - `scripts/scrape_tcgplayer_prices.py` — Firecrawl fallback. Its `SLUG_OVERRIDES` is only a fallback: the Playwright scraper reads each set's price-guide slug from TCGPlayer's `Catalog/SetNames` (new and renamed sets need no code change)
 - `scripts/check_tcgplayer_coverage.py` — last step of the weekly scrape; fails the run if a released set was skipped/failed on TCGPlayer or has <50% `tcgplayer`-priced cards (added after OP-16+/ST-30+ silently fell back to dotgg/eBay for months)
-- `scripts/build_all_prices.py` — parse + map prices → `data/card_prices_all.json`
+- `scripts/fetch_tcgcsv_optcg.py` — TCGPlayer's catalog + market prices for every One Piece group via tcgcsv.com (category 68) → `data/tcgcsv_optcg.json`. Fills products the price-guide scrape doesn't reach (release-event, pre-release, anniversary groups); scraped prices stay primary where both exist.
+- `scripts/build_all_prices.py` — parse + map prices → `data/card_prices_all.json`. Mapping order: dotgg tcg_id → official promo label match (`match_promo_labels`) → shared-product correction (`correct_shared_tcg_ids`) → picture check (`verify_by_image`, skips JA-site rows; `OPTCG_SKIP_IMAGE_CHECK=1` to skip). Writes a "Promo & variant pricing" run summary + `data/price_mapping_report.json` (re-matches, cards to check by hand, stamped TCGPlayer prints with no card).
+- `scripts/image_match.py` — official image vs TCGPlayer product photo similarity (24×33 thumbnails cached in `data/image_vectors.json`, persisted by `actions/cache` in `scrape.yml`). Right print ≈1.0, another stamp of the same card ≈0.3–0.55.
 - `scripts/build_don_cards.py` — deduped DON catalog → `data/don_cards.json`
 - `scripts/import-d1.js` / `import-prices-d1.js` / `import-don-d1.js` — batched D1 writes
 - `scripts/import-jp-exclusives.js` — seeds JP-exclusive Championship variants from `data/jp_exclusives.json` into `cards` + `card_sets`, inheriting stats from the base row

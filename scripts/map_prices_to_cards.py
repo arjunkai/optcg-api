@@ -68,6 +68,16 @@ def normalize_variant(v):
 def load_cards():
     with CARDS_JSON.open(encoding="utf-8") as f:
         cards = json.load(f)
+    # Same overrides import-d1.js applies (classify_variants.py: manga/serial
+    # from Limitless). Without them every parallel reads as plain alt art
+    # here, so manga-specific matching never fired (the OP-17 Newgate and
+    # Linlin mangas kept their alt art / base card's price).
+    overrides_path = CARDS_JSON.parent / "variant_types.json"
+    if overrides_path.exists():
+        overrides = json.loads(overrides_path.read_text(encoding="utf-8"))
+        for c in cards:
+            if c["id"] in overrides:
+                c["variant_type"] = overrides[c["id"]]
     # Normalize variant_type so parallel matching works regardless of whether
     # cards.json carries legacy display labels ("Alternate Art") or snake_case.
     for c in cards:
