@@ -22,8 +22,18 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install -r requirements.txt
-          pip install playwright
+          pip install playwright Pillow numpy
           playwright install chromium
+
+      # Thumbnail cache for the image check in build_all_prices.py
+      # (scripts/image_match.py). Restored from the newest run and saved under
+      # a fresh key, so each week only downloads images it has never seen.
+      - name: Restore image-match cache
+        uses: actions/cache@v4
+        with:
+          path: data/image_vectors.json
+          key: image-vectors-${{ github.run_id }}
+          restore-keys: image-vectors-
 
       - name: Install Node dependencies
         run: npm install
@@ -59,6 +69,13 @@ jobs:
       # promo variants with expensive alt-arts.
       - name: Fetch dotgg catalog
         run: python scripts/fetch_dotgg_catalog.py
+
+      # TCGPlayer's catalog via tcgcsv: fills every product the price-guide
+      # scrape doesn't reach (release-event, pre-release, anniversary groups).
+      # Optional: the build falls back to the scrape alone if this fails.
+      - name: Fetch TCGPlayer catalog (tcgcsv)
+        continue-on-error: true
+        run: python scripts/fetch_tcgcsv_optcg.py
 
       - name: Build price catalog
         run: python scripts/build_all_prices.py

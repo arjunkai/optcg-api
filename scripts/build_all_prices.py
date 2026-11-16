@@ -32,6 +32,7 @@ Outputs:
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from collections import Counter, defaultdict
@@ -43,6 +44,7 @@ from map_prices_to_cards import VARIANT_LABEL_TO_TYPE, load_cards
 DATA_DIR = Path("data")
 RAW_DIR = DATA_DIR / "tcgplayer_raw"
 DOTGG_FILE = DATA_DIR / "dotgg_catalog.json"
+TCGCSV_FILE = DATA_DIR / "tcgcsv_optcg.json"  # scripts/fetch_tcgcsv_optcg.py
 
 # Sanity ceiling for dotgg-only fallback prices (no TCGPlayer sale exists for
 # the card). Above this, dotgg's number is almost always the TCGPlayer listed
@@ -174,6 +176,114 @@ def match_promo_labels(cards: dict, dotgg: dict, rows_by_number: dict) -> dict:
     return out
 
 
+def verify_by_image(assign: dict, cards: dict, rows_by_number: dict, vectors, unresolved: list | None = None) -> dict:
+    """card_id -> tcg_id where the official image picks a different product.
+
+    Checks parallels, P- promos and cards with no mapping yet against every
+    TCGPlayer product printed with the same number (image_match.py). A card
+    moves only when one product clearly matches its picture (decide()), that
+    product isn't held by another card of the family that matches it as
+    well, and no other card of the family wants it about as much.
+    """
+    from image_match import MATCH, TIE, decide, similarity, tcgplayer_image
+
+    def wants_check(cid: str) -> bool:
+        c = cards[cid]
+        # Japan-exclusive rows (image from the JA site) share art with English
+        # prints but aren't them: OP07-064_p3's Japanese manga matched the EN
+        # "Championship 2024 Finalist" product. An EN TCGPlayer price never
+        # applies to them.
+        if "//www.onepiece-cardgame.com" in (c.get("image_url") or ""):
+            return False
+        return bool(c.get("parallel")) or cid.startswith("P-") or cid not in assign
+
+    family: dict[str, list[str]] = defaultdict(list)
+    for cid, c in cards.items():
+        family[c.get("base_id") or cid].append(cid)
+
+    todo = [cid for cid in cards if wants_check(cid) and rows_by_number.get(cards[cid].get("base_id") or cid)
+            and cards[cid].get("image_url")]
+    urls = {cards[c]["image_url"] for c in todo}
+    urls |= {tcgplayer_image(r["tcg_id"]) for c in todo
+             for r in rows_by_number[cards[c].get("base_id") or c]}
+    vectors.ensure(urls)
+
+    def score(cid: str, tid: int):
+        return similarity(vectors.get(cards[cid].get("image_url")), vectors.get(tcgplayer_image(tid)))
+
+    proposals: dict[str, tuple[int, float]] = {}
+    for cid in todo:
+        base = cards[cid].get("base_id") or cid
+        cands = {r["tcg_id"] for r in rows_by_number[base] if r.get("price") is not None}
+        scores = {t: score(cid, t) for t in cands}
+        best = decide(scores, assign.get(cid))
+        if best is None:
+            cur = scores.get(assign.get(cid))
+            known = [s for s in scores.values() if s is not None]
+            if unresolved is not None and cur is not None and cur < 0.8 and known:
+                # Linked product's photo doesn't look like the card, and no
+                # other product clearly does either: a human should look.
+                unresolved.append({"card_id": cid, "tcg_id": assign.get(cid), "score": round(cur, 3),
+                                   "best_other": round(max(known), 3)})
+            continue
+        holders = [o for o in family[base] if o != cid and assign.get(o) == best]
+        if any((score(o, best) or 0) >= MATCH for o in holders):
+            continue  # another print of this card owns that product
+        proposals[cid] = (best, scores[best])
+
+    out: dict[str, int] = {}
+    by_product: dict[int, list[tuple[float, str]]] = defaultdict(list)
+    for cid, (tid, s) in proposals.items():
+        by_product[tid].append((s, cid))
+    for tid, wanted in by_product.items():
+        wanted.sort(reverse=True)
+        if len(wanted) > 1 and wanted[0][0] - wanted[1][0] < TIE:
+            continue  # two cards look the same as this product; can't tell
+        out[wanted[0][1]] = tid
+    return out
+
+
+STAMP_RE = re.compile(r"championship|\bcs\b|celebration|winner|finalist|top \d|regional|treasure|"
+                      r"store|judge|tournament|participation|event pack|anniversary|pre-?release", re.I)
+
+
+def write_mapping_summary(report: dict, matched: dict, products: dict, rows_by_number: dict) -> None:
+    """Markdown for the run summary + data/price_mapping_report.json."""
+    used = {t for v in matched.values() for t in v["tcg_ids"]}
+    missing = sorted(
+        (r for rows in rows_by_number.values() for r in rows
+         if r["tcg_id"] not in used and r.get("price") and r.get("name_suffix") and STAMP_RE.search(r["name_suffix"])),
+        key=lambda r: -r["price"])
+    missing = list({r["tcg_id"]: r for r in missing}.values())
+    report["unrepresented_stamped"] = [
+        {"tcg_id": r["tcg_id"], "number": r["number"], "label": r["name_suffix"], "price": r["price"]} for r in missing]
+    (DATA_DIR / "price_mapping_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+    def fmt(t):
+        p = products.get(t) or {}
+        return f"{p.get('name_suffix') or 'base'} ${p.get('price')}" if t else "-"
+    lines = ["### Promo & variant pricing", ""]
+    for key, title in (("label", "Matched by official promo label"), ("shared", "Moved off a sibling's product"),
+                       ("image", "Re-matched by picture")):
+        changes = report.get(key) or {}
+        lines.append(f"**{title}: {len(changes)}**")
+        lines += [f"- {c}: {fmt(o)} → {fmt(n)}" for c, (o, n) in sorted(changes.items())[:40]]
+        lines.append("")
+    un = report.get("unresolved") or []
+    lines.append(f"**Picture doesn't match its product, no clear fix (check by hand): {len(un)}**")
+    lines += [f"- {u['card_id']}: linked {fmt(u['tcg_id'])} (similarity {u['score']}, best other {u['best_other']})"
+              for u in un[:30]]
+    lines += ["", f"**Stamped TCGPlayer prints with no card of ours: {len(missing)}** "
+              f"(${sum(r['price'] for r in missing):,.0f} total; top 15)"]
+    lines += [f"- {r['number']} ({r['name_suffix']}) ${r['price']}" for r in missing[:15]]
+    md = "\n".join(lines)
+    print(md)
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if path:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(md + "\n")
+
+
 def main() -> None:
     if not DOTGG_FILE.exists():
         print(f"ERROR: {DOTGG_FILE} not found. Run `python scripts/fetch_dotgg_catalog.py` first.")
@@ -209,7 +319,27 @@ def main() -> None:
                 "name": row["name"],
                 "name_suffix": row["name_suffix"],
             }
-    print(f"Indexed {len(tcg_products)} unique TCGPlayer products across {total_rows} rows")
+    scraped = len(tcg_products)
+    # tcgcsv (TCGPlayer's catalog) fills every product the price-guide scrape
+    # didn't reach: release-event, pre-release, anniversary, demo-deck groups
+    # that have no sets.json entry. Scraped prices stay primary where both
+    # exist (a few two-printing products differ: ST01-001 guide $0.49 Normal,
+    # tcgcsv only lists Foil $30.49).
+    if TCGCSV_FILE.exists():
+        for row in json.loads(TCGCSV_FILE.read_text(encoding="utf-8")):
+            if row["tcg_id"] in tcg_products:
+                continue
+            tcg_products[row["tcg_id"]] = {
+                "price": row["price"],
+                "set_id": f"tcgcsv:{row['group_id']}",
+                "name": row["name"],
+                "name_suffix": row["name_suffix"],
+            }
+            rows_by_number[row["number"]].append(row)
+    else:
+        print(f"WARNING: {TCGCSV_FILE} missing; using the price-guide scrape only")
+    print(f"Indexed {len(tcg_products)} unique TCGPlayer products "
+          f"({scraped} from price guides across {total_rows} rows, {len(tcg_products) - scraped} from tcgcsv)")
 
     # ── 2. Authoritative pass: dotgg tells us which tcg_id each card_id maps to.
     matched: dict[str, dict] = {}
@@ -237,33 +367,55 @@ def main() -> None:
         tid = next((t for t in ids if t in tcg_products), None)
         if tid is not None and tcg_products[tid]["price"] is not None:
             assign[card_id] = tid
+    mapping_report: dict = {"image": {}, "unresolved": []}
     labeled = match_promo_labels(by_id, dotgg, rows_by_number)
     for cid, tid in sorted(labeled.items()):
         if assign.get(cid) != tid:
             old = assign.get(cid)
             print(f"  promo label {cid}: {old} (${tcg_products[old]['price'] if old else '-'}) "
                   f"-> {tid} (${tcg_products[tid]['price']})")
+    assign_before = dict(assign)
     assign.update(labeled)
     fixes = correct_shared_tcg_ids(assign, by_id, tcg_products, rows_by_number)
-    for cid, tid in labeled.items():
-        fixes.setdefault(cid, tid)  # label matches are final; write them like fixes
+    mapping_report["label"] = {c: [assign_before.get(c), t] for c, t in labeled.items() if assign_before.get(c) != t}
+    mapping_report["shared"] = {c: [assign[c], t] for c, t in fixes.items()}
     print(f"Relabeled {len(fixes)} dotgg mapping(s) that shared a tcg_id within a base:")
     for cid, new in sorted(fixes.items()):
         print(f"  {cid}: {assign[cid]} (${tcg_products[assign[cid]]['price']}) "
               f"-> {new} (${tcg_products[new]['price']})")
+    for cid, tid in labeled.items():
+        fixes.setdefault(cid, tid)  # label matches are final; write them like fixes
+
+    # Strongest evidence last: the official picture vs each product's photo.
+    if os.environ.get("OPTCG_SKIP_IMAGE_CHECK") != "1":
+        from image_match import Vectors
+        vectors = Vectors()
+        current = {**assign, **fixes}
+        unresolved: list[dict] = []
+        by_image = verify_by_image(current, by_id, rows_by_number, vectors, unresolved)
+        vectors.save()
+        print(f"Image check: {len(by_image)} card(s) re-matched by picture "
+              f"({vectors.fetched} new thumbnails downloaded)")
+        for cid, tid in sorted(by_image.items()):
+            old = current.get(cid)
+            print(f"  image {cid}: {old} (${tcg_products[old]['price'] if old else '-'}) "
+                  f"-> {tid} {tcg_products[tid]['name_suffix']!r} (${tcg_products[tid]['price']})")
+        fixes.update(by_image)
+        mapping_report["image"] = {c: [current.get(c), t] for c, t in by_image.items()}
+        mapping_report["unresolved"] = unresolved
 
     for card_id in by_id.keys():
+        if card_id in fixes:
+            tid = fixes[card_id]
+            upsert(card_id, tcg_products[tid]["price"], [tid], tcg_products[tid]["set_id"], "dotgg+tcgplayer")
+            authoritative += 1
+            continue
         dotgg_row = dotgg.get(card_id)
         if not dotgg_row:
             no_dotgg_entry.append(card_id)
             continue
 
         tcg_ids = to_tcg_ids(dotgg_row.get("tcg_ids"))
-        if card_id in fixes:
-            tid = fixes[card_id]
-            upsert(card_id, tcg_products[tid]["price"], [tid], tcg_products[tid]["set_id"], "dotgg+tcgplayer")
-            authoritative += 1
-            continue
         # Try TCGPlayer first — fresher, it's our primary market.
         tcg_match = next((tcg_products[tid] for tid in tcg_ids if tid in tcg_products), None)
         if tcg_match and tcg_match["price"] is not None:
@@ -304,7 +456,7 @@ def main() -> None:
     # claim in the second, stamping the same tcg_id on two different
     # parallels. Saw this on 2026-05-22 for OP01-001 (485262 stamped on
     # both _p1 and _p2). See audit_optcg_positional_conflation.py.
-    seen_tcg_ids: set[int] = set()
+    seen_tcg_ids: set[int] = set(fixes.values())  # never reuse a corrected card's product
 
     # Re-use all scraped rows (not just deduped products)
     for s in sets_meta:
@@ -338,6 +490,8 @@ def main() -> None:
 
     positional = sum(1 for v in matched.values() if v["match_method"].startswith("positional"))
     print(f"Positional fallback (cards not in dotgg):              {positional}")
+
+    write_mapping_summary(mapping_report, matched, tcg_products, rows_by_number)
 
     # ── 4. Write outputs
     (DATA_DIR / "card_prices_all.json").write_text(
