@@ -40,7 +40,7 @@ A REST API for trading card game data. Provides One Piece TCG card and set data 
 | GET | `/representatives` | One representative card per character, artist, or set. `kind=character\|artist\|set` |
 
 ### Pokémon TCG
-Requires a key with the `ptcg` scope. Every route takes `?lang=en\|ja\|zh-cn\|zh-tw` (default `en`).
+Requires a key with the `ptcg` scope. Every route takes `?lang=en\|ja\|zh-cn\|zh-tw` (default `en`). Japanese prices come from TCGPlayer (via TCGCSV) or Cardmarket only; Japanese retail and auction sources were dropped in November 2026.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -56,7 +56,7 @@ Requires a key with the `ptcg` scope. Every route takes `?lang=en\|ja\|zh-cn\|zh
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/images/set/{set_id}` | Set banner art. `?kind=box\|logo` |
-| GET | `/images/{card_id}` | Card image with CORS headers. Lookup order: Cloudflare R2 bucket `optcg-images/cards/{id}.png` first (curated high-res scans for DON cards and JP-exclusive variants), then TCGPlayer CDN for uncurated DONs, then `en.onepiece-cardgame.com` as the last resort for regular cards. Served with `Cache-Control: public, max-age=86400`. |
+| GET | `/images/{card_id}` | Card image with CORS headers. Lookup order: Cloudflare R2 bucket `optcg-images/cards/{id}.png` first (curated high-res scans for DON cards and JP-exclusive variants), then the TCGPlayer product photo for uncurated DONs and stamped `_t` prints, then `en.onepiece-cardgame.com` as the last resort for regular cards. Served with `Cache-Control: public, max-age=86400`. |
 
 ---
 
@@ -71,6 +71,7 @@ Requires a key with the `ptcg` scope. Every route takes `?lang=en\|ja\|zh-cn\|zh
 | `name` | string | `Luffy` | Partial match on card name or types (traits like `East Blue`, `Straw Hat Crew`) |
 | `parallel` | boolean | `true` | true = parallel only, false = base only |
 | `variant_type` | string | `manga` | alt_art, reprint, manga, serial |
+| `stamp` | string | `winner` | Event-stamped prints: championship, winner, finalist, top_players, treasure_cup, regional, store, judge, tournament, anniversary, pre_release, release_event, collection, event |
 | `finish` | string | `foil` | Filter by print finish (case-insensitive) |
 | `min_power` | int | `5000` | Minimum power |
 | `max_power` | int | `9000` | Maximum power |
@@ -121,6 +122,8 @@ GET /sets/OP-01/cards
   "tcg_ids": [482196],
   "price_updated_at": 1776432551,
   "price_source": "tcgplayer",
+  "print_label": null,
+  "stamp": null,
   "sets": [{ "id": "OP-01", "label": "BOOSTER PACK -ROMANCE DAWN- [OP-01]" }]
 }
 ```
@@ -137,6 +140,12 @@ GET /sets/OP-01/cards
 A handful of card IDs like `P-001_jp1`, `P-003_jp1`, `ST03-008_jp1` are JP-exclusive Championship prize variants that the official site (`en.onepiece-cardgame.com`) does not publish. They are seeded from `data/jp_exclusives.json` via `scripts/import-jp-exclusives.js`, inherit stats from their base card, and follow the `{base_id}_jpN` suffix convention so they never collide with Bandai's own `_pN`/`_rN` parallel IDs.
 
 Images for these variants come from real eBay seller photos uploaded to R2 at `optcg-images/cards/{id}.png`. The image endpoint serves them the same way it serves DON card images. Prices come from `scripts/price_jp_exclusives.py` (eBay Browse API, consensus-of-3 with trimmed median, stamps `price_source='ebay_jp'`).
+
+### Stamped prints (`print_label`, `stamp`)
+
+Every card carries `print_label`, the TCGPlayer label of the exact print its price comes from: an event stamp (`"CS 25-26 Celebration Pack"`, `"2025 New Year Event Winner"`) or a named treatment (`"Super Leader Alternate Art"`, `"Manga"`). It is `null` for plain prints and generic alt arts. `stamp` puts event prints into a small set of categories (see the `stamp` filter above).
+
+The official site lists one row per promo, so some stamped prints (championship, finalist, treasure cup...) have no row of their own. Those are added as `{base_id}_t{TCGPlayer product id}`, e.g. `OP07-109_t579983`, only after a manual review (`data/stamped_prints.json`). They inherit the base card's stats, sit in set `569901` (Promotion card), are priced from their own TCGPlayer product, and use the TCGPlayer photo as their image. IDs are permanent once published.
 
 ### Price sources
 
@@ -158,12 +167,13 @@ Each higher-priority source skips rows already populated by a higher tier on re-
 
 ## Data Coverage
 
-- **4,500+ unique cards** across **50+ sets** + **195 DON cards**
-- Booster packs OP-01 through OP-15
-- Starter decks ST-01 through ST-29
-- Extra Boosters, Premium Boosters, Promos
+- **5,400+ unique cards** across **60+ sets** + **230+ DON cards**
+- Booster packs OP-01 through OP-18
+- Starter decks ST-01 through ST-36
+- Extra Boosters EB-01 through EB-05, Premium Boosters, Promos
 - Parallel/alt-art cards tracked with `base_id` reference
 - Variant types auto-classified: `alt_art`, `reprint`, `manga`, `serial`
+- Event-stamped and premium prints tagged with `print_label` / `stamp`
 - Cards appearing in multiple sets fully supported via junction table
 - **~99.6% price coverage** via TCGPlayer + dotgg.gg + Firecrawl web-search + manual overrides, refreshed weekly
 
