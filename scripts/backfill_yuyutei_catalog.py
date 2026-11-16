@@ -172,6 +172,9 @@ def main() -> None:
     ap.add_argument("--set", help="Only run this TCGdex set id (e.g. SV10)")
     ap.add_argument("--limit", type=int, default=None,
                     help="Cap the number of TCGdex sets processed (smoke tests)")
+    ap.add_argument("--no-prices", action="store_true",
+                    help="Images (and catalog rows) only; write no Yuyutei prices. "
+                         "The weekly ptcg-refresh runs this way since JA price scrapers were dropped.")
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--dry-run", action="store_true",
                    help="Fetch + parse + diff + write SQL. Don't touch D1.")
@@ -236,7 +239,7 @@ def main() -> None:
                 card_id = f"{tcgdex_id.upper()}-{local_id}"
                 set_id = tcgdex_id.upper()
                 image_url = card["image_url"]
-                if card["price_jpy"] is not None:
+                if card["price_jpy"] is not None and not args.no_prices:
                     price_usd = round(card["price_jpy"] * fx, 2)
                     pricing_obj = {
                         "price_jpy": card["price_jpy"],
