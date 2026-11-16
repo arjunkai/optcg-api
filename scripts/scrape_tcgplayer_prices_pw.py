@@ -81,6 +81,47 @@ EXTRACT_JS = """
 """
 
 
+SET_NAMES_URL = "https://mpapi.tcgplayer.com/v2/Catalog/SetNames?categoryId=68&active=true"
+
+
+def _abbr_key(s: str) -> str:
+    # Our set_id vs TCGPlayer abbreviation: "OP-16"/"OP16", "EB-05"/"EB05",
+    # "ST-31"/"ST-31", "OP14-EB04"/"OP14-EB04". Compare with dashes stripped.
+    return s.replace("-", "").upper()
+
+
+def fetch_live_slugs() -> dict[str, str]:
+    """TCGPlayer's own set catalog: abbreviation -> price-guide urlName.
+
+    The hand-kept SLUG_OVERRIDES went stale twice: new sets (OP-16+, ST-30+,
+    EB-05) were never added and got skipped, and TCGPlayer renamed every
+    starter deck page (st-NN- prefix), so those timed out every week. Reading
+    urlName from the catalog picks both up automatically. Returns {} on any
+    failure so the scrape falls back to SLUG_OVERRIDES.
+    """
+    import urllib.request
+    req = urllib.request.Request(SET_NAMES_URL, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = json.loads(r.read())
+            rows = data.get("results", data) if isinstance(data, dict) else data
+            return {_abbr_key(x["abbreviation"]): x["urlName"]
+                    for x in rows if x.get("abbreviation") and x.get("urlName")}
+        except Exception as e:  # noqa: BLE001 — fallback path, log and retry
+            print(f"  SetNames fetch failed ({e}); attempt {attempt + 1}/3")
+    return {}
+
+
+# Our ids for the two catch-all groups, which carry no abbreviation of ours.
+CATCHALL_ABBR = {"569901": "OPPR", "569801": "OPCS"}
+
+
+def resolve_slug(set_id: str, live: dict[str, str]) -> str | None:
+    key = CATCHALL_ABBR.get(set_id, _abbr_key(set_id))
+    return live.get(key) or SLUG_OVERRIDES.get(set_id)
+
+
 def load_checkpoint() -> dict:
     if CHECKPOINT.exists():
         return json.loads(CHECKPOINT.read_text(encoding="utf-8"))
@@ -129,6 +170,9 @@ async def run(set_ids_filter: list[str] | None, force: bool) -> None:
     if set_ids_filter:
         sets = [s for s in sets if s["set_id"] in set_ids_filter]
 
+    live = fetch_live_slugs()
+    print(f"TCGPlayer SetNames: {len(live)} slugs" + ("" if live else " (unavailable, using SLUG_OVERRIDES)"))
+
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=True)
         ctx = await browser.new_context(
@@ -142,7 +186,7 @@ async def run(set_ids_filter: list[str] | None, force: bool) -> None:
 
         for s in sets:
             set_id = s["set_id"]
-            slug = SLUG_OVERRIDES.get(set_id)
+            slug = resolve_slug(set_id, live)
             if not slug:
                 print(f"  [skip] {set_id:12} no slug mapped")
                 if set_id not in cp["skipped"]:
