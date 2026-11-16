@@ -147,7 +147,14 @@ def test_stamp_categories():
         assert stamp_for(label) == (label, stamp), label
 
 
-def test_in_set_treatments_and_name_disambiguators_are_not_stamps():
-    for label in [None, "Alternate Art", "Manga", "SP", "Treasure Rare", "TR", "Reprint", "Jolly Roger Foil",
-                  "Super Leader Alternate Art", "Daz.Bonez", "Gold"]:
+def test_generic_labels_and_name_disambiguators_get_nothing():
+    for label in [None, "Alternate Art", "Parallel", "Reprint", "Jolly Roger Foil", "Pirate Foil",
+                  "Daz.Bonez", "Zala", "Gold"]:
         assert stamp_for(label) == (None, None), label
+
+
+def test_named_treatments_get_a_label_but_no_stamp():
+    # Super Leader Parallel debuted in OP-17 (OP17-079_p2 Luffy, EB05-010_p2 Robin).
+    for label in ["Super Leader Alternate Art", "Super Alternate Art", "Red Super Alternate Art",
+                  "Heroine Leader", "Manga", "SP", "Treasure Rare", "TR", "Super Rare Alternate Art"]:
+        assert stamp_for(label) == (label, None), label

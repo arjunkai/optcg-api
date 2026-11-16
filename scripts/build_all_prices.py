@@ -284,9 +284,6 @@ def write_mapping_summary(report: dict, matched: dict, products: dict, rows_by_n
             fh.write(md + "\n")
 
 
-# In-set treatments: a print of the set itself, not a stamped promo.
-IN_SET_RE = re.compile(r"alternate art|parallel|manga|\bsp\b|special|full art|wanted poster|treasure rare|^tr$|"
-                       r"box topper|reprint|foil", re.I)
 # Most specific first: "OP11 Release Event Winner" is a winner print,
 # "Championship 2024 Finalist Card Set" a finalist one.
 STAMP_RULES = [
@@ -308,13 +305,25 @@ STAMP_RULES = [
 ]
 
 
+# Named premium treatments worth surfacing as print_label (no stamp):
+# Super Leader Parallel (new in OP-17), Super / Red Super Alternate Art,
+# Heroine Leader (EB-05), Manga, SP, Treasure Rare, Wanted Poster, ...
+TREATMENT_RE = re.compile(r"super|heroine leader|manga|\bsp\b|treasure rare|^tr$|wanted poster|full art|"
+                          r"box topper|serial", re.I)
+
+
 def stamp_for(label: str | None) -> tuple[str | None, str | None]:
     """(print_label, stamp) for a TCGPlayer product label.
 
-    None for plain prints, in-set treatments and labels that only tell two
-    cards of the same name apart ("Daz.Bonez", "Zala", DON "Gold"); else the
-    label verbatim and its category ("CS 25-26 Celebration Pack" ->
-    championship).
+    * Event/promo stamps: the label and its category ("CS 25-26 Celebration
+      Pack" -> championship).
+    * Named premium treatments: the label with no stamp, so clients can tell
+      a Super Leader Parallel ("Super Leader Alternate Art", OP17-079_p2,
+      EB05-010_p2) or a "Heroine Leader" (EB-05) from a plain alt art; our
+      variant_type only knows alt_art / manga / reprint / serial.
+    * None for generic labels (Alternate Art, Parallel, Reprint, foils) and
+      labels that only tell two cards of the same name apart ("Daz.Bonez",
+      "Zala", DON "Gold").
     """
     if not label:
         return None, None
@@ -323,7 +332,9 @@ def stamp_for(label: str | None) -> tuple[str | None, str | None]:
     for stamp, pat in STAMP_RULES:
         if re.search(pat, label, re.I):
             return label, stamp
-    return None, None  # in-set treatment (IN_SET_RE) or a name disambiguator
+    if TREATMENT_RE.search(label):
+        return label, None
+    return None, None  # generic in-set label or a name disambiguator
 
 
 def main() -> None:
