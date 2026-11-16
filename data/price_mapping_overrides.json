@@ -1,0 +1,6 @@
+{
+  "_readme": "Hand-checked card -> TCGPlayer product links, applied last by scripts/build_all_prices.py. Add one only after comparing the official image with the TCGPlayer product photo by eye, and say what you checked in note.",
+  "OP09-004_p5": {"tcg_id": 657442, "note": "Shanks SP, gold frame (OP-13 print) = TCGPlayer 'Gold'. The picture check ties Gold/Silver (1.0 vs 0.982). Checked by eye 2026-11-16."},
+  "OP09-004_p6": {"tcg_id": 657443, "note": "Shanks SP, silver/red frame (OP-13 print) = TCGPlayer 'Silver'. Checked by eye 2026-11-16."},
+  "P-092_p2": {"tcg_id": 649247, "note": "Koby with the 'Release Event WINNER' stamp = 'OP12 Release Event Winner'; P-092_p1 is the plain Release Event print. Checked by eye 2026-11-16."}
+}
