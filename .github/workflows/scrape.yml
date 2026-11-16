@@ -60,6 +60,16 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node scripts/import-jp-exclusives.js
 
+      # Stamped TCGPlayer prints we list as {base}_t{tcg_id} rows. Only
+      # entries approved by hand in data/stamped_prints.json; inherits stats
+      # from the base row like the JP exclusives, so it runs after import-d1.
+      # The price build below prices each one from its own product.
+      - name: Import stamped prints
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/import-stamped-prints.js
+
       - name: Scrape TCGPlayer prices
         run: python scripts/scrape_tcgplayer_prices_pw.py
 

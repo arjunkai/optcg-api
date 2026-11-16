@@ -86,6 +86,16 @@ async function proxyAndCache(url, requestHeaders = {}, seen = null, directTimeou
 // so reject it before any fetch or write.
 const SAFE_ID = /^[A-Za-z0-9_-]{1,40}$/;
 
+// Stamped prints listed from TCGPlayer (data/stamped_prints.json,
+// scripts/import-stamped-prints.js): id {base}_t{TCGPlayer product id}, e.g.
+// OP07-109_t579983. Bandai publishes no image for them, so like DONs they
+// serve R2 first, then TCGPlayer's product photo, and ignore ?lang.
+const STAMPED_ID = /^[A-Z0-9-]+_t(\d{1,9})$/;
+export function stampedProductId(cardId) {
+  const m = STAMPED_ID.exec(cardId);
+  return m ? Number(m[1]) : null;
+}
+
 // Ids no upstream could serve are remembered per colo for a while, so a
 // missing or made-up id costs one R2 get instead of up to 4 upstream fetches
 // (Bandai EN/JA + wsrv each) on every request. Short enough that a newly
@@ -156,7 +166,8 @@ export function registerImageRoutes(app) {
     // Japanese art lives under a separate R2 prefix (cards/ja/:id) and comes
     // from the JA official host. DON!! images are language-neutral synthetic
     // scans, so they ignore ?lang and always use the EN path.
-    const lang = (c.req.query('lang') === 'ja' && !cardId.startsWith('DON-')) ? 'ja' : 'en';
+    const stampedTcgId = stampedProductId(cardId);
+    const lang = (c.req.query('lang') === 'ja' && !cardId.startsWith('DON-') && !stampedTcgId) ? 'ja' : 'en';
     const r2Key = lang === 'ja' ? `cards/ja/${cardId}.png` : `cards/${cardId}.png`;
 
     // 1. R2 first (high-res curated images, including DON PDFs). Lang-keyed.
@@ -203,12 +214,13 @@ export function registerImageRoutes(app) {
       // else fall through to the EN upstream block below.
     }
 
-    // 2. DON cards without a curated R2 scan fall back to TCGPlayer's CDN art.
-    //    The first successful fetch is kept in R2 under cards/fallback/, so
-    //    the card stops depending on a live TCGPlayer fetch (a timeout there
-    //    used to blank the image). The curated key (cards/DON-NNN.png, step 1)
-    //    is still checked first, so a later curated upload wins.
-    if (cardId.startsWith('DON-')) {
+    // 2. DON cards and stamped _t prints without a curated R2 scan fall back
+    //    to TCGPlayer's CDN art. The first successful fetch is kept in R2 under
+    //    cards/fallback/, so the card stops depending on a live TCGPlayer fetch
+    //    (a timeout there used to blank the image). The curated key
+    //    (cards/{id}.png, step 1) is still checked first, so a later curated
+    //    upload wins. A _t id carries its product id; a DON looks it up.
+    if (cardId.startsWith('DON-') || stampedTcgId) {
       const fallbackKey = `cards/fallback/${cardId}`;
       if (c.env.IMAGES) {
         const kept = await c.env.IMAGES.get(fallbackKey);
@@ -218,15 +230,19 @@ export function registerImageRoutes(app) {
           });
         }
       }
-      const row = await c.env.DB
-        .prepare('SELECT tcg_ids FROM cards WHERE id = ?')
-        .bind(cardId)
-        .first();
-      if (!row || !row.tcg_ids) return notFound(c, missKind, cardId);
-      let tcgIds;
-      try { tcgIds = JSON.parse(row.tcg_ids); } catch { return notFound(c, missKind, cardId); }
-      if (!tcgIds?.length) return notFound(c, missKind, cardId);
-      const url = `https://tcgplayer-cdn.tcgplayer.com/product/${tcgIds[0]}_in_1000x1000.jpg`;
+      let tcgId = stampedTcgId;
+      if (!tcgId) {
+        const row = await c.env.DB
+          .prepare('SELECT tcg_ids FROM cards WHERE id = ?')
+          .bind(cardId)
+          .first();
+        if (!row || !row.tcg_ids) return notFound(c, missKind, cardId);
+        let tcgIds;
+        try { tcgIds = JSON.parse(row.tcg_ids); } catch { return notFound(c, missKind, cardId); }
+        if (!tcgIds?.length) return notFound(c, missKind, cardId);
+        tcgId = tcgIds[0];
+      }
+      const url = `https://tcgplayer-cdn.tcgplayer.com/product/${tcgId}_in_1000x1000.jpg`;
       // TCGPlayer isn't the host blocking Worker IPs, so it gets longer than
       // the 2s Bandai timeout before the wsrv fallback.
       const res = await proxyAndCache(url, {}, seen, 6000);

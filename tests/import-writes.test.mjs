@@ -205,3 +205,33 @@ test('import-pokemontcg-d1: reprint sets pair by name, replace eBay thumbnails, 
   assert.equal(img('30th-c-020'), 'l/100');
   assert.equal(img('30th-c-030'), 'https://keep/hand-picked.png');
 });
+
+test('import-stamped-prints: approved rows inherit the base, then re-runs write nothing', () => {
+  const db = freshDb();
+  db.exec(`INSERT INTO cards (id, name, category, colors, cost, power, rarity) VALUES ('OP07-109', 'Kizaru', 'Character', '["Black"]', 7, 8000, 'Secret Rare')`);
+  const file = (label) => ({
+    _readme: 'x',
+    579983: { base: 'OP07-109', label, stamp: 'championship', approved: true },
+    579984: { base: 'OP07-109', label: 'Judge Pack', stamp: 'judge', approved: false },
+    579985: { base: 'ZZ99-001', label: 'No base', approved: true },
+  });
+  const run = (label) => dryRun('scripts/import-stamped-prints.js', { 'data/stamped_prints.json': file(label) }, 'scripts/stamped_batches');
+
+  assert.equal(apply(db, run('CS 2024 Event Pack')), 2, 'one card row + its Promotion card set row');
+  const row = db.prepare(`SELECT * FROM cards WHERE id = 'OP07-109_t579983'`).get();
+  assert.equal(row.name, 'Kizaru');
+  assert.equal(row.power, 8000);
+  assert.equal(row.rarity, 'Secret Rare', 'no rarity in the entry: the base card\'s');
+  assert.equal(row.base_id, 'OP07-109');
+  assert.equal(row.parallel, 1);
+  assert.equal(row.print_label, 'CS 2024 Event Pack');
+  assert.equal(row.stamp, 'championship');
+  assert.equal(row.tcg_ids, '[579983]');
+  assert.equal(row.image_url, 'https://optcg-api.arjunbansal-ai.workers.dev/images/OP07-109_t579983');
+  assert.deepEqual(db.prepare(`SELECT set_id FROM card_sets WHERE card_id = 'OP07-109_t579983'`).all().map((r) => r.set_id), ['569901']);
+  assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM cards WHERE id LIKE '%_t579984' OR id LIKE '%_t579985'`).get().n, 0,
+    'unapproved and base-less entries add nothing');
+
+  assert.equal(apply(db, run('CS 2024 Event Pack')), 0, 'same file again: no writes');
+  assert.equal(apply(db, run('CS 2024 Event Pack Vol. 2')), 1, 'a label fix rewrites just that row');
+});

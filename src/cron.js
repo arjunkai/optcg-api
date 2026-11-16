@@ -59,7 +59,8 @@ export async function warmColdImages(env) {
     // Keyset paging reads only the window (an OFFSET re-reads every row
     // before it, up to the whole catalog).
     const res = await env.DB.prepare(
-      "SELECT id FROM cards WHERE id > ? AND id NOT LIKE 'DON-%' ORDER BY id LIMIT ?"
+      // DONs and stamped _t prints have no Bandai image to warm.
+      "SELECT id FROM cards WHERE id > ? AND id NOT LIKE 'DON-%' AND instr(id, '_t') = 0 ORDER BY id LIMIT ?"
     ).bind(after, WARM_SCAN).all();
     rows = res.results || [];
   } catch (err) {
