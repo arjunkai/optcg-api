@@ -4,940 +4,1034 @@
     "base": "OP07-109",
     "label": "CS 2024 Event Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 3399.66,
     "closest_listed": "OP07-109_p1",
     "closest_score": 0.606,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "684105": {
     "base": "OP14-112",
     "label": "CS 26-27 Regionals Season 1",
     "stamp": "regional",
-    "approved": false,
+    "approved": true,
     "price_seen": 3166.48,
     "closest_listed": "OP14-112_p2",
     "closest_score": 0.443,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "455816": {
     "base": "ST01-013",
     "label": "Treasure Cup",
     "stamp": "treasure_cup",
-    "approved": false,
+    "approved": true,
     "price_seen": 3000.0,
     "closest_listed": "ST01-013_p1",
     "closest_score": 0.429,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "710741": {
     "base": "OP15-109",
     "label": "CS26-27 Regionals Season 2 Top 16",
     "stamp": "top_players",
-    "approved": false,
+    "approved": true,
     "price_seen": 2500.0,
     "closest_listed": "OP15-109_p1",
     "closest_score": 0.39,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "692134": {
     "base": "OP13-108",
     "label": "Treasure Cup May 2026",
     "stamp": "treasure_cup",
-    "approved": false,
+    "approved": true,
     "price_seen": 2048.73,
     "closest_listed": "OP13-108_p1",
     "closest_score": 0.23,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "683981": {
     "base": "OP14-120",
     "label": "CS26-27 Regionals Season 1",
     "stamp": "regional",
-    "approved": false,
+    "approved": true,
     "price_seen": 1999.0,
     "closest_listed": "OP14-120_p1",
     "closest_score": 0.508,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "509467": {
     "base": "OP02-099",
     "label": "Championship 2023",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 1800.0,
     "closest_listed": "OP02-099_p1",
     "closest_score": 0.448,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "661704": {
     "base": "ST21-014",
     "label": "3rd Anniversary Treasure Campaign Pack",
     "stamp": "treasure_cup",
-    "approved": false,
+    "approved": true,
     "price_seen": 1698.63,
     "closest_listed": "ST21-014_p1",
     "closest_score": 0.372,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "509466": {
     "base": "OP02-096",
     "label": "Championship 2023",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 1649.98,
     "closest_listed": "OP02-096_p1",
     "closest_score": 0.479,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "552709": {
     "base": "OP01-121",
     "label": "Treasure Cup",
     "stamp": "treasure_cup",
-    "approved": false,
+    "approved": true,
     "price_seen": 1483.0,
     "closest_listed": "OP01-121_p1",
     "closest_score": 0.77,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "692135": {
     "base": "OP15-060",
     "label": "Treasure Cup May 2026",
     "stamp": "treasure_cup",
-    "approved": false,
+    "approved": true,
     "price_seen": 1399.0,
     "closest_listed": "OP15-060_p1",
     "closest_score": 0.668,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "561185": {
     "base": "ST07-010",
     "label": "Treasure Cup",
     "stamp": "treasure_cup",
-    "approved": false,
+    "approved": true,
     "price_seen": 862.5,
     "closest_listed": "ST07-010",
     "closest_score": -0.017,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "514046": {
     "base": "OP03-013",
     "label": "Championship 2023",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 817.99,
     "closest_listed": "OP03-013_p2",
     "closest_score": 0.224,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "535278": {
     "base": "ST06-012",
     "label": "Treasure Cup",
     "stamp": "treasure_cup",
-    "approved": false,
+    "approved": true,
     "price_seen": 779.68,
     "closest_listed": "ST06-012",
     "closest_score": 0.399,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "686281": {
     "base": "OP13-016",
     "label": "Treasure Cup March 2026",
     "stamp": "treasure_cup",
-    "approved": false,
+    "approved": true,
     "price_seen": 742.37,
     "closest_listed": "OP13-016_p1",
     "closest_score": 0.873,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "579374": {
     "base": "OP07-064",
     "label": "Championship 2024 Top Player Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 733.33,
     "closest_listed": "OP07-064_p1",
     "closest_score": 0.44,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "579373": {
     "base": "OP08-020",
     "label": "Championship 2024 Top Player Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 700.0,
     "closest_listed": "OP08-020",
     "closest_score": 0.549,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "525686": {
     "base": "ST03-008",
     "label": "CS 2023 Top Players Pack",
     "stamp": "top_players",
-    "approved": false,
+    "approved": true,
     "price_seen": 690.16,
     "closest_listed": "ST03-008_p3",
     "closest_score": 0.393,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "515354": {
     "base": "ST04-005",
     "label": "Treasure Cup",
     "stamp": "treasure_cup",
-    "approved": false,
+    "approved": true,
     "price_seen": 544.99,
     "closest_listed": "ST04-005_p4",
     "closest_score": 0.422,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "520773": {
     "base": "P-041",
     "label": "1st Anniversary Tournament",
     "stamp": "anniversary",
-    "approved": false,
+    "approved": true,
     "price_seen": 489.2,
     "closest_listed": "P-041_p1",
     "closest_score": 0.344,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "509465": {
     "base": "OP02-114",
     "label": "Championship 2023",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 449.42,
     "closest_listed": "OP02-114_p1",
     "closest_score": 0.407,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "579371": {
     "base": "OP07-064",
     "label": "Championship 2024 Finalist Card Set",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 449.4,
     "closest_listed": "OP07-064_p1",
     "closest_score": 0.441,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "622738": {
     "base": "OP07-064",
     "label": "Championship 2024 Finalist Card Set Vol. 2",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 449.35,
     "closest_listed": "OP07-064_p1",
     "closest_score": 0.325,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "622719": {
     "base": "OP01-077",
     "label": "Championship 2024 Top Player Pack Vol. 2",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 445.0,
     "closest_listed": "OP01-077",
     "closest_score": 0.215,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "657113": {
     "base": "OP13-120",
     "label": "Store Treasure Cup 2025",
     "stamp": "treasure_cup",
-    "approved": false,
+    "approved": true,
     "price_seen": 420.75,
     "closest_listed": "OP13-120",
     "closest_score": 0.497,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "579375": {
     "base": "OP06-092",
     "label": "Championship 2024 Top Player Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 400.0,
     "closest_listed": "OP06-092",
     "closest_score": 0.454,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "622725": {
     "base": "OP08-020",
     "label": "Championship 2024 Top Player Pack Vol. 2",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 400.0,
     "closest_listed": "OP08-020",
     "closest_score": 0.449,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "515352": {
     "base": "OP02-018",
     "label": "Treasure Cup",
     "stamp": "treasure_cup",
-    "approved": false,
+    "approved": true,
     "price_seen": 358.89,
     "closest_listed": "OP02-018_p1",
     "closest_score": 0.815,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "535277": {
     "base": "OP02-098",
     "label": "Treasure Cup",
     "stamp": "treasure_cup",
-    "approved": false,
+    "approved": true,
     "price_seen": 352.78,
     "closest_listed": "OP02-098_p1",
     "closest_score": 0.472,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "579372": {
     "base": "OP08-020",
     "label": "Championship 2024 Finalist Card Set",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 349.74,
     "closest_listed": "OP08-020",
     "closest_score": 0.549,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "455814": {
     "base": "OP01-004",
     "label": "Treasure Cup",
     "stamp": "treasure_cup",
-    "approved": false,
+    "approved": true,
     "price_seen": 346.13,
     "closest_listed": "OP01-004",
     "closest_score": 0.246,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "579367": {
     "base": "OP01-077",
     "label": "Championship 2024 Finalist Card Set",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 345.0,
     "closest_listed": "OP01-077_p1",
     "closest_score": 0.372,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "635473": {
     "base": "OP09-061",
     "label": "English Version 2nd Anniversary Set",
     "stamp": "anniversary",
-    "approved": false,
+    "approved": true,
     "price_seen": 324.27,
     "closest_listed": "OP09-061_p2",
     "closest_score": 0.373,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "580038": {
     "base": "P-063",
     "label": "CS 2024 Event Pack Finalist",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 300.0,
     "closest_listed": "P-063_r1",
     "closest_score": 0.642,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "539551": {
     "base": "P-034",
     "label": "CS 2023 Event Pack Finalist Ver.",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 300.0,
     "closest_listed": null,
     "closest_score": null,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "636546": {
     "base": "ST16-005",
     "label": "Beginners Deck Party [ST-23] - [ST-28] Winner Pack",
     "stamp": "winner",
-    "approved": false,
+    "approved": true,
     "price_seen": 293.13,
     "closest_listed": "ST16-005_p1",
     "closest_score": 0.642,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "455815": {
     "base": "ST01-006",
     "label": "Treasure Cup",
     "stamp": "treasure_cup",
-    "approved": false,
+    "approved": true,
     "price_seen": 292.19,
     "closest_listed": "ST01-006_p6",
     "closest_score": 0.511,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "683982": {
     "base": "OP07-113",
     "label": "Regionals Finalist Card Set 26-27",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 268.37,
     "closest_listed": "OP07-113_p1",
     "closest_score": 0.447,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "525324": {
     "base": "ST01-007",
     "label": "CS 2023 Celebration Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 267.9,
     "closest_listed": "ST01-007_p2",
     "closest_score": 0.633,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "622722": {
     "base": "OP06-092",
     "label": "Championship 2024 Top Player Pack Vol. 2",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 259.33,
     "closest_listed": "OP06-092",
     "closest_score": 0.547,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "622739": {
     "base": "OP08-020",
     "label": "Championship 2024 Finalist Card Set Vol. 2",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 249.99,
     "closest_listed": "OP08-020",
     "closest_score": 0.449,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "710239": {
     "base": "P-101",
     "label": "CS 26-27 Celebration Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 245.99,
     "closest_listed": "P-101",
     "closest_score": 0.802,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "636551": {
     "base": "OP06-101",
     "label": "Beginners Deck Party [ST-23] - [ST-28] Winner Pack",
     "stamp": "winner",
-    "approved": false,
+    "approved": true,
     "price_seen": 245.54,
     "closest_listed": "OP06-101",
     "closest_score": 0.474,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "514044": {
     "base": "OP02-008",
     "label": "Championship 2023",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 237.81,
     "closest_listed": "OP02-008_r1",
     "closest_score": -0.114,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "579376": {
     "base": "OP06-025",
     "label": "Championship 2024 Top Player Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 233.81,
     "closest_listed": "OP06-025_p1",
     "closest_score": 0.607,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "622737": {
     "base": "OP06-092",
     "label": "Championship 2024 Finalist Card Set Vol. 2",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 227.99,
     "closest_listed": "OP06-092",
     "closest_score": 0.546,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "622721": {
     "base": "OP06-025",
     "label": "Championship 2024 Top Player Pack Vol. 2",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 225.0,
     "closest_listed": "OP06-025",
     "closest_score": 0.43,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "579369": {
     "base": "OP06-025",
     "label": "Championship 2024 Finalist Card Set",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 218.5,
     "closest_listed": "OP06-025_p1",
     "closest_score": 0.608,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "579370": {
     "base": "OP06-092",
     "label": "Championship 2024 Finalist Card Set",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 205.11,
     "closest_listed": "OP06-092",
     "closest_score": 0.453,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "580040": {
     "base": "ST03-008",
     "label": "CS 2024 Event Pack Finalist",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 201.6,
     "closest_listed": "ST03-008_p2",
     "closest_score": 0.949,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "710240": {
     "base": "P-102",
     "label": "CS 26-27 Celebration Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 200.13,
     "closest_listed": "P-102",
     "closest_score": 0.688,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "710244": {
     "base": "P-106",
     "label": "CS 26-27 Celebration Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 200.0,
     "closest_listed": "P-106",
     "closest_score": 0.762,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "710696": {
     "base": "OP13-001",
     "label": "English Version 3rd Anniversary Set",
     "stamp": "anniversary",
-    "approved": false,
+    "approved": true,
     "price_seen": 198.33,
     "closest_listed": "OP13-001",
     "closest_score": 0.386,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "622733": {
     "base": "OP05-102",
     "label": "Championship 2024 Finalist Card Set Vol. 2",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 193.58,
     "closest_listed": "OP05-102_r1",
     "closest_score": 0.226,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "658341": {
     "base": "OP07-047",
     "label": "CS 25-26 Regionals Textured Chase Promo",
     "stamp": "regional",
-    "approved": false,
+    "approved": true,
     "price_seen": 182.88,
     "closest_listed": "OP07-047_p2",
     "closest_score": 0.78,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "658339": {
     "base": "EB01-003",
     "label": "CS 25-26 Regionals Textured Chase Promo",
     "stamp": "regional",
-    "approved": false,
+    "approved": true,
     "price_seen": 181.6,
     "closest_listed": "EB01-003_p2",
     "closest_score": 0.674,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "683984": {
     "base": "OP12-071",
     "label": "Regionals Finalist Card Set 26-27",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 180.94,
     "closest_listed": "OP12-071",
     "closest_score": 0.401,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "710700": {
     "base": "OP13-118",
     "label": "English Version 3rd Anniversary Set",
     "stamp": "anniversary",
-    "approved": false,
+    "approved": true,
     "price_seen": 171.21,
     "closest_listed": "OP13-118",
     "closest_score": 0.186,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "636539": {
     "base": "OP09-069",
     "label": "Beginners Deck Party [ST-23] - [ST-28] Winner Pack",
     "stamp": "winner",
-    "approved": false,
+    "approved": true,
     "price_seen": 169.04,
     "closest_listed": "OP09-069_p2",
     "closest_score": 0.617,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "622736": {
     "base": "OP06-025",
     "label": "Championship 2024 Finalist Card Set Vol. 2",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 169.0,
     "closest_listed": "OP06-025",
     "closest_score": 0.432,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "579377": {
     "base": "OP05-102",
     "label": "Championship 2024 Top Player Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 168.33,
     "closest_listed": "OP05-102_p1",
     "closest_score": 0.26,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "515362": {
     "base": "P-036",
     "label": "Winner",
     "stamp": "winner",
-    "approved": false,
+    "approved": true,
     "price_seen": 167.37,
     "closest_listed": "P-036",
     "closest_score": 0.433,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "658338": {
     "base": "P-085",
     "label": "CS 25-26 Regionals Textured Chase Promo",
     "stamp": "regional",
-    "approved": false,
+    "approved": true,
     "price_seen": 161.5,
     "closest_listed": "P-085",
     "closest_score": 0.729,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "682929": {
     "base": "OP13-119",
     "label": "Store",
     "stamp": "store",
-    "approved": false,
+    "approved": true,
     "price_seen": 152.79,
     "closest_listed": "OP13-119_p3",
     "closest_score": 0.325,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "636543": {
     "base": "OP09-002",
     "label": "Beginners Deck Party [ST-23] - [ST-28] Winner Pack",
     "stamp": "winner",
-    "approved": false,
+    "approved": true,
     "price_seen": 152.6,
     "closest_listed": "OP09-002",
     "closest_score": 0.501,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "727952": {
     "base": "EB03-006",
     "label": "Heroines Battle Vol.2 Winner",
     "stamp": "winner",
-    "approved": false,
+    "approved": true,
     "price_seen": 148.05,
     "closest_listed": "EB03-006",
     "closest_score": 0.593,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "539552": {
     "base": "OP01-052",
     "label": "CS 2023 Event Pack Finalist Ver.",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 137.5,
     "closest_listed": null,
     "closest_score": null,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "658340": {
     "base": "P-089",
     "label": "CS 25-26 Regionals Textured Chase Promo",
     "stamp": "regional",
-    "approved": false,
+    "approved": true,
     "price_seen": 130.14,
     "closest_listed": "P-089",
     "closest_score": 0.641,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "710732": {
     "base": "OP14-107",
     "label": "Regionals Finalist Card Set 26-27 Vol.2",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 127.48,
     "closest_listed": "OP14-107",
     "closest_score": 0.292,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "580036": {
     "base": "P-044",
     "label": "CS 2024 Event Pack Finalist",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 125.98,
     "closest_listed": "P-044_r1",
     "closest_score": 0.783,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "710241": {
     "base": "P-103",
     "label": "CS 26-27 Celebration Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 123.5,
     "closest_listed": "P-103",
     "closest_score": 0.492,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "710697": {
     "base": "OP13-004",
     "label": "English Version 3rd Anniversary Set",
     "stamp": "anniversary",
-    "approved": false,
+    "approved": true,
     "price_seen": 123.31,
     "closest_listed": "OP13-004",
     "closest_score": 0.48,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "686283": {
     "base": "OP12-071",
     "label": "Regional Participation Pack 2026 Vol.1",
     "stamp": "regional",
-    "approved": false,
+    "approved": true,
     "price_seen": 107.49,
     "closest_listed": "OP12-071",
     "closest_score": 0.41,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "525299": {
     "base": "P-028",
     "label": "CS 2023 Event Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 97.76,
     "closest_listed": "P-028",
     "closest_score": 0.924,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "557287": {
     "base": "ST01-011",
     "label": "English Version 1st Anniversary Set",
     "stamp": "anniversary",
-    "approved": false,
+    "approved": true,
     "price_seen": 94.65,
     "closest_listed": "ST01-011_p3",
     "closest_score": 0.895,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "712849": {
     "base": "OP12-037",
     "label": "Winner",
     "stamp": "winner",
-    "approved": false,
+    "approved": true,
     "price_seen": 93.02,
     "closest_listed": null,
     "closest_score": null,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "525315": {
     "base": "P-007",
     "label": "CS 2023 Celebration Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 89.88,
     "closest_listed": "P-007",
     "closest_score": 0.841,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "579368": {
     "base": "OP05-102",
     "label": "Championship 2024 Finalist Card Set",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 89.67,
     "closest_listed": "OP05-102_p1",
     "closest_score": 0.258,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "710694": {
     "base": "OP13-002",
     "label": "English Version 3rd Anniversary Set",
     "stamp": "anniversary",
-    "approved": false,
+    "approved": true,
     "price_seen": 89.04,
     "closest_listed": "OP13-002",
     "closest_score": 0.362,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "580050": {
     "base": "ST01-012",
     "label": "CS 2024 Celebration Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 87.79,
     "closest_listed": "ST01-012_p1",
     "closest_score": 0.409,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "525302": {
     "base": "P-031",
     "label": "CS 2023 Event Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 85.08,
     "closest_listed": "P-031",
     "closest_score": 0.91,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "683986": {
     "base": "ST12-003",
     "label": "Regionals Finalist Card Set 26-27",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 82.67,
     "closest_listed": "ST12-003",
     "closest_score": 0.326,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "600711": {
     "base": "ST13-003",
     "label": "2nd Anniversary Tournament",
     "stamp": "anniversary",
-    "approved": false,
+    "approved": true,
     "price_seen": 81.07,
     "closest_listed": "ST13-003_p1",
     "closest_score": 0.524,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "710234": {
     "base": "OP12-028",
     "label": "CS 26-27 Celebration Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 77.39,
     "closest_listed": "OP12-028",
     "closest_score": 0.315,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "635471": {
     "base": "OP09-001",
     "label": "English Version 2nd Anniversary Set",
     "stamp": "anniversary",
-    "approved": false,
+    "approved": true,
     "price_seen": 74.93,
     "closest_listed": "OP09-001_p2",
     "closest_score": 0.194,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "710733": {
     "base": "OP07-015",
     "label": "Regionals Finalist Card Set 26-27 Vol.2",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 74.23,
     "closest_listed": "OP07-015_p1",
     "closest_score": 0.539,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "457018": {
     "base": "P-006",
     "label": "Winner Pack Vol. 1",
     "stamp": "winner",
-    "approved": false,
+    "approved": true,
     "price_seen": 72.73,
     "closest_listed": "P-006",
     "closest_score": 0.396,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "684307": {
     "base": "P-106",
     "label": "Winner Pack 2026 Vol. 2",
     "stamp": "winner",
-    "approved": false,
+    "approved": true,
     "price_seen": 64.95,
     "closest_listed": "P-106",
     "closest_score": 0.323,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "710242": {
     "base": "P-104",
     "label": "CS 26-27 Celebration Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 63.6,
     "closest_listed": "P-104",
     "closest_score": 0.509,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "525326": {
     "base": "ST02-007",
     "label": "CS 2023 Celebration Pack",
     "stamp": "championship",
-    "approved": false,
+    "approved": true,
     "price_seen": 62.61,
     "closest_listed": "ST02-007_p1",
     "closest_score": 0.606,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "635479": {
     "base": "OP05-119",
     "label": "English Version 2nd Anniversary Set",
     "stamp": "anniversary",
-    "approved": false,
+    "approved": true,
     "price_seen": 57.6,
     "closest_listed": "OP05-119_p4",
     "closest_score": 0.388,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "457019": {
     "base": "P-007",
     "label": "Winner Pack Vol. 1",
     "stamp": "winner",
-    "approved": false,
+    "approved": true,
     "price_seen": 55.76,
     "closest_listed": "P-007",
     "closest_score": 0.443,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "710735": {
     "base": "OP14-026",
     "label": "Regionals Finalist Card Set 26-27 Vol.2",
     "stamp": "finalist",
-    "approved": false,
+    "approved": true,
     "price_seen": 55.42,
     "closest_listed": "OP14-026",
     "closest_score": -0.035,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   },
   "635472": {
     "base": "OP09-081",
     "label": "English Version 2nd Anniversary Set",
     "stamp": "anniversary",
-    "approved": false,
+    "approved": true,
     "price_seen": 54.05,
     "closest_listed": "OP09-081_p2",
     "closest_score": 0.179,
-    "found": "2026-11-16"
+    "found": "2026-11-16",
+    "added": "2026-11-16"
   }
 }
