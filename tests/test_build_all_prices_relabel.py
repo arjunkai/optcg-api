@@ -118,3 +118,36 @@ def test_two_cards_with_the_same_label_are_ambiguous():
     dotgg = {"OP01-016_p5": {"CardSets": "CS 25-26 Celebration Pack"},
              "OP01-016_p6": {"CardSets": "CS 25-26 Celebration Pack"}}
     assert match_promo_labels(cards, dotgg, _rbn(rows)) == {}
+
+
+# ── stamp_for: TCGPlayer label -> (print_label, stamp) ──────────────────────
+
+from build_all_prices import stamp_for  # noqa: E402
+
+
+def test_stamp_categories():
+    cases = {
+        "CS 25-26 Celebration Pack": "championship",
+        "2025 New Year Event Winner": "winner",
+        "OP11 Release Event Winner": "winner",
+        "Championship 2024 Finalist Card Set Vol. 2": "finalist",
+        "Treasure Cup 2025": "treasure_cup",
+        "Store Championship Trophy Card": "store",
+        "Offline Regional 2024 Vol. 3": "regional",
+        "Judge Pack Vol. 4": "judge",
+        "Tournament Pack 2025 Vol. 1": "tournament",
+        "2025 Pirates League Finals Textured Foil": "tournament",
+        "OP-07 Pre-Release Tournament": "pre_release",
+        "OP12 Release Event": "release_event",
+        "English Version 2nd Anniversary Set": "anniversary",
+        "Premium Card Collection -ONE PIECE FILM RED Edition-": "collection",
+        "Anime Expo 2023": "event",
+    }
+    for label, stamp in cases.items():
+        assert stamp_for(label) == (label, stamp), label
+
+
+def test_in_set_treatments_and_name_disambiguators_are_not_stamps():
+    for label in [None, "Alternate Art", "Manga", "SP", "Treasure Rare", "TR", "Reprint", "Jolly Roger Foil",
+                  "Super Leader Alternate Art", "Daz.Bonez", "Gold"]:
+        assert stamp_for(label) == (None, None), label

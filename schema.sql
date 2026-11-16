@@ -38,7 +38,7 @@ CREATE TABLE cards (
   types TEXT,
   effect TEXT,
   trigger_text TEXT
-, finish TEXT, price REAL, foil_price REAL, delta_price REAL, delta_7d_price REAL, tcg_ids TEXT, price_updated_at INTEGER, price_source TEXT, price_ja REAL, price_source_ja TEXT, price_updated_at_ja INTEGER);
+, finish TEXT, price REAL, foil_price REAL, delta_price REAL, delta_7d_price REAL, tcg_ids TEXT, price_updated_at INTEGER, price_source TEXT, price_ja REAL, price_source_ja TEXT, price_updated_at_ja INTEGER, print_label TEXT, stamp TEXT);
 
 CREATE INDEX idx_cards_category ON cards(category);
 CREATE INDEX idx_cards_parallel ON cards(parallel);
@@ -46,6 +46,7 @@ CREATE INDEX idx_cards_price ON cards(price);
 CREATE INDEX idx_cards_price_source ON cards(price_source);
 CREATE INDEX idx_cards_price_updated_at ON cards(price_updated_at);
 CREATE INDEX idx_cards_rarity ON cards(rarity);
+CREATE INDEX idx_cards_stamp ON cards(stamp);
 CREATE INDEX idx_cards_variant_type ON cards(variant_type);
 
 CREATE TABLE card_translations (

@@ -54,7 +54,7 @@ export const CARDS_ALL_PAGE_SQL = 'SELECT * FROM cards WHERE id > ?1 ORDER BY id
 //   - price_ja  : real JA market price (never the EN price on a JA card).
 export const CARDS_INDEX_SQL = `
       SELECT c.id, c.category, c.rarity, c.colors, c.attributes, c.types,
-             c.cost, c.power, c.parallel, c.variant_type, c.finish,
+             c.cost, c.power, c.parallel, c.variant_type, c.finish, c.print_label, c.stamp,
              c.price, c.price_source, c.price_ja, c.price_source_ja,
              COALESCE(en.name, c.name)       AS name,
              ja.name                          AS name_ja,
@@ -88,6 +88,8 @@ export function slimCardRow(row) {
     parallel: Boolean(row.parallel),
     variant_type: row.variant_type,
     finish: row.finish,
+    print_label: row.print_label,
+    stamp: row.stamp,
     price: row.price,
     price_source: row.price_source,
     price_ja: row.price_ja,
@@ -108,7 +110,7 @@ export function registerCardRoutes(app) {
   // MUST be registered BEFORE /cards/:card_id or Hono will route 'all'
   // into that param and return a 404 for a non-existent card with
   // id 'ALL'.
-  app.get('/cards/all', (c) => serveSnapshot(c, 'cards-all-v1'));
+  app.get('/cards/all', (c) => serveSnapshot(c, 'cards-all-v2'));
 
   // Slim index. Same shape spirit as /cards/all but drops the heavy
   // fields (effect text, trigger text, image_url, tcg_ids, sets
@@ -118,7 +120,7 @@ export function registerCardRoutes(app) {
   // CARDS_INDEX_SQL + slimCardRow below.
   //
   // MUST be registered BEFORE /cards/:card_id (same reason as /cards/all).
-  app.get('/cards/index', (c) => serveSnapshot(c, 'cards-index-v1'));
+  app.get('/cards/index', (c) => serveSnapshot(c, 'cards-index-v2'));
 
   // Price history for a single card. Range caps the window in seconds so we
   // don't return the entire history by default. Rows come from the
@@ -253,6 +255,10 @@ export function registerCardRoutes(app) {
       params.push(q.variant_type);
     }
 
+    if (q.stamp) {
+      conditions.push('c.stamp = ? COLLATE NOCASE');
+      params.push(q.stamp);
+    }
     if (q.finish) {
       conditions.push('c.finish = ? COLLATE NOCASE');
       params.push(q.finish);

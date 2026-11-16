@@ -66,6 +66,27 @@ test('import-prices-d1: re-running unchanged prices writes nothing; history only
   assert.equal(db.prepare(`SELECT price FROM cards WHERE id = 'OP01-003'`).get().price, 50, 'manual price kept');
 });
 
+test('import-prices-d1: stamp tags write once, never bump price_updated_at', () => {
+  const db = freshDb();
+  db.exec(`INSERT INTO cards (id, name) VALUES ('EB01-014_p1', 'Sanji'), ('OP01-003', 'Nami')`);
+  db.exec(`UPDATE cards SET price = 50, price_source = 'manual' WHERE id = 'OP01-003'`);
+  const prices = (label) => ({
+    'EB01-014_p1': { price: 67.58, tcg_ids: [649632], price_updated_at: 1000, match_method: 'dotgg+tcgplayer',
+                     print_label: label, stamp: label ? 'championship' : null },
+    'OP01-003': { price: 9, tcg_ids: [3], price_updated_at: 1000, match_method: 'dotgg+tcgplayer',
+                  print_label: 'Judge', stamp: 'judge' },
+  });
+  const run = (label) => dryRun('scripts/import-prices-d1.js', { 'data/card_prices_all.json': prices(label) }, 'scripts/price_batches');
+
+  apply(db, run('CS 25-26 Celebration Pack'));
+  assert.equal(apply(db, run('CS 25-26 Celebration Pack')), 0, 'same tags: no writes');
+  const sanji = db.prepare(`SELECT print_label, stamp, price_updated_at FROM cards WHERE id = 'EB01-014_p1'`).get();
+  assert.deepEqual([sanji.print_label, sanji.stamp], ['CS 25-26 Celebration Pack', 'championship']);
+  assert.equal(db.prepare(`SELECT stamp FROM cards WHERE id = 'OP01-003'`).get().stamp, 'judge', 'manual-priced card still tagged');
+  assert.equal(apply(db, run(null)), 1, 'tag cleared: one row, price untouched');
+  assert.equal(db.prepare(`SELECT price_updated_at FROM cards WHERE id = 'EB01-014_p1'`).get().price_updated_at, 1000);
+});
+
 test('import-don-d1: unchanged DONs write nothing; history only on change', () => {
   const db = freshDb();
   const dons = (price, at) => [

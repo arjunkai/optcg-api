@@ -284,6 +284,48 @@ def write_mapping_summary(report: dict, matched: dict, products: dict, rows_by_n
             fh.write(md + "\n")
 
 
+# In-set treatments: a print of the set itself, not a stamped promo.
+IN_SET_RE = re.compile(r"alternate art|parallel|manga|\bsp\b|special|full art|wanted poster|treasure rare|^tr$|"
+                       r"box topper|reprint|foil", re.I)
+# Most specific first: "OP11 Release Event Winner" is a winner print,
+# "Championship 2024 Finalist Card Set" a finalist one.
+STAMP_RULES = [
+    ("winner", r"winner"),
+    ("finalist", r"finalist"),
+    ("top_players", r"top players|top \d"),
+    ("treasure_cup", r"treasure (cup|campaign|booster)"),  # not the in-set "Treasure Rare"
+    ("regional", r"regional"),
+    ("store", r"\bstore\b"),  # Store Championship packs are store-level events
+    ("championship", r"championship|\bcs ?\d|celebration"),
+    ("judge", r"judge"),
+    ("pre_release", r"pre-?release"),
+    ("release_event", r"release event"),
+    ("anniversary", r"anniversary"),
+    ("tournament", r"tournament|participation|event pack|promotion pack|battle|league"),
+    ("collection", r"collection|binder|illustration box|gift|\bset\b|\bdeck\b|sound loader|playmat|magazine|"
+                   r"welcome pack|retail"),
+    ("event", r"expo|gen con|convention|one piece day|new year|pirates party|film red|dash pack|round 1"),
+]
+
+
+def stamp_for(label: str | None) -> tuple[str | None, str | None]:
+    """(print_label, stamp) for a TCGPlayer product label.
+
+    None for plain prints, in-set treatments and labels that only tell two
+    cards of the same name apart ("Daz.Bonez", "Zala", DON "Gold"); else the
+    label verbatim and its category ("CS 25-26 Celebration Pack" ->
+    championship).
+    """
+    if not label:
+        return None, None
+    # Event words first: "2025 Pirates League Finals Textured Foil" is an
+    # event print even though it says "foil".
+    for stamp, pat in STAMP_RULES:
+        if re.search(pat, label, re.I):
+            return label, stamp
+    return None, None  # in-set treatment (IN_SET_RE) or a name disambiguator
+
+
 def main() -> None:
     if not DOTGG_FILE.exists():
         print(f"ERROR: {DOTGG_FILE} not found. Run `python scripts/fetch_dotgg_catalog.py` first.")
@@ -490,6 +532,10 @@ def main() -> None:
 
     positional = sum(1 for v in matched.values() if v["match_method"].startswith("positional"))
     print(f"Positional fallback (cards not in dotgg):              {positional}")
+
+    for entry in matched.values():
+        product = tcg_products.get(entry["tcg_ids"][0]) if entry["tcg_ids"] else None
+        entry["print_label"], entry["stamp"] = stamp_for(product and product["name_suffix"])
 
     write_mapping_summary(mapping_report, matched, tcg_products, rows_by_number)
 
